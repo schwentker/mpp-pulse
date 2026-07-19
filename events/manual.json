@@ -1,6 +1,6 @@
 {
   "trigger": "manual",
   "force": true,
-  "resummarize": true,
-  "report_date": "2026-07-18"
+  "window_days": 7,
+  "report_date": "2026-07-19"
 }

@@ -88,3 +88,14 @@ def test_news_relevance_accepts_watched_people_only_with_organization():
     assert app.is_relevant_payment_news("Jake Moxey at Tempo Labs updated the draft")
     assert app.is_relevant_payment_news("Steve Kaliski from Stripe shared a protocol update")
     assert not app.is_relevant_payment_news("A different Brendan Ryan released a photography book")
+
+
+def test_weekly_fallback_describes_seven_day_window():
+    report = app.fallback_summary("2026-07-19", [])
+    assert "last seven days" in report
+    assert "last 24 hours" not in report
+
+
+def test_tempo_publication_date_extraction():
+    page = '<meta property="article:published_time" content="2026-07-15T08:30:00Z">'
+    assert app.extract_published_at(page) == datetime(2026, 7, 15, 8, 30, tzinfo=UTC)

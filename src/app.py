@@ -46,6 +46,8 @@ WATCHED_PEOPLE = (
     ("jeff weinstein", "stripe"),
     ("steve kaliski", "stripe"),
 )
+LOOKBACK_DAYS = 7
+MAX_REPORT_ITEMS = 50
 
 TABLE = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
 S3 = boto3.client("s3")
@@ -139,7 +141,23 @@ def collect_mpp() -> list[dict[str, Any]]:
     return items
 
 
-def collect_tempo() -> list[dict[str, Any]]:
+def extract_published_at(page: str) -> datetime | None:
+    patterns = (
+        r"""property=["']article:published_time["'][^>]+content=["']([^"']+)""",
+        r"""content=["']([^"']+)["'][^>]+property=["']article:published_time["']""",
+        r'''"datePublished"\s*:\s*"([^"]+)"''',
+        r"""<time[^>]+datetime=["']([^"']+)""",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, page, re.IGNORECASE)
+        if match:
+            published = parse_date(html.unescape(match.group(1)))
+            if published:
+                return published
+    return None
+
+
+def collect_tempo(since: datetime) -> list[dict[str, Any]]:
     body, _ = fetch(TEMPO_BLOG_URL)
     page = body.decode("utf-8", errors="replace")
     links: dict[str, str] = {}
@@ -155,26 +173,33 @@ def collect_tempo() -> list[dict[str, Any]]:
         if title:
             links[url] = title
 
-    return [
-        {
-            "source": "tempo_blog",
-            "external_id": url,
-            "title": title,
-            "url": url,
-            "published_at": iso(now_utc()),
-            "summary": "Official Tempo blog entry discovered on the blog index.",
-            "category": "ecosystem",
-            "news_eligible": False,
-        }
-        for url, title in list(links.items())[:20]
-    ]
+    items = []
+    for url, title in list(links.items())[:20]:
+        article_body, _ = fetch(url)
+        article_page = article_body.decode("utf-8", errors="replace")
+        published = extract_published_at(article_page)
+        if not published or published < since:
+            continue
+        items.append(
+            {
+                "source": "tempo_blog",
+                "external_id": url,
+                "title": title,
+                "url": url,
+                "published_at": iso(published),
+                "summary": "Official Tempo blog post published within the report window.",
+                "category": "ecosystem",
+                "news_eligible": True,
+            }
+        )
+    return items
 
 
 def collect_github(since: datetime) -> list[dict[str, Any]]:
     items = []
     configured_repo = os.getenv("GITHUB_REPOSITORY", DEFAULT_GITHUB_REPO)
     repos = dict.fromkeys((configured_repo, PAYMENTAUTH_GITHUB_REPO))
-    params = urllib.parse.urlencode({"since": iso(since), "per_page": "20"})
+    params = urllib.parse.urlencode({"since": iso(since), "per_page": "100"})
     token = os.getenv("GITHUB_TOKEN") or None
     for repo in repos:
         body, _ = fetch(f"https://api.github.com/repos/{repo}/commits?{params}", token=token)
@@ -235,7 +260,7 @@ def is_relevant_payment_news(text: str) -> bool:
 def collect_hacker_news(since: datetime) -> list[dict[str, Any]]:
     items = []
     for query in NEWS_QUERIES:
-        params = urllib.parse.urlencode({"query": query, "tags": "story", "hitsPerPage": "20"})
+        params = urllib.parse.urlencode({"query": query, "tags": "story", "hitsPerPage": "50"})
         body, _ = fetch(f"{HACKER_NEWS_SEARCH_URL}?{params}")
         for hit in json.loads(body).get("hits", []):
             published = parse_date(str(hit.get("created_at") or ""))
@@ -268,7 +293,9 @@ def collect_hacker_news(since: datetime) -> list[dict[str, Any]]:
 def collect_reddit(since: datetime) -> list[dict[str, Any]]:
     items = []
     for query in NEWS_QUERIES:
-        params = urllib.parse.urlencode({"q": query, "sort": "new", "t": "day"})
+        params = urllib.parse.urlencode(
+            {"q": query, "sort": "new", "t": "week", "limit": "100"}
+        )
         body, _ = fetch(f"{REDDIT_SEARCH_URL}?{params}")
         root = ElementTree.fromstring(body)
         for entry in root.findall("{http://www.w3.org/2005/Atom}entry"):
@@ -387,11 +414,11 @@ def fallback_summary(report_date: str, items: list[dict[str, Any]]) -> str:
     if not items:
         return (
             f"MPP Pulse — {report_date}\n\n"
-            "Pulse signal: no verified new development was found in the last 24 hours. "
+            "Pulse signal: no verified new development was found in the last seven days. "
             "The MPP catalog is tracked as inventory, not treated as news."
         )
-    lines = [f"MPP Pulse — {report_date}", "", "Top newly observed signals:"]
-    for index, item in enumerate(items[:10], 1):
+    lines = [f"MPP Pulse Weekly — week ending {report_date}", "", "Top weekly signals:"]
+    for index, item in enumerate(items[:MAX_REPORT_ITEMS], 1):
         lines.append(
             f"[S{index}] {item['title']} (score {item['importance_score']}) — {item['url']}"
         )
@@ -410,18 +437,19 @@ def summarize(report_date: str, items: list[dict[str, Any]]) -> str:
             "score": item["importance_score"],
             "summary": item["summary"][:900],
         }
-        for index, item in enumerate(items[:10], 1)
+        for index, item in enumerate(items[:MAX_REPORT_ITEMS], 1)
     ]
-    prompt = f"""Create a concise daily machine-payments intelligence brief for {report_date}.
+    prompt = f"""Create a concise weekly machine-payments intelligence brief for the seven-day
+window ending {report_date}.
 Use only the evidence JSON below. Cite every factual claim with [S#]. Clearly label inference.
-Start with exactly one line beginning `Pulse signal:` that summarizes the day's most important
+Start with exactly one line beginning `Pulse signal:` that summarizes the week's most important
 verified change, or says that no verified new development was found.
 Include: Executive signal, Material developments, Why it matters, What to verify next, Sources.
 Only treat evidence marked news_eligible as recent news. Do not call a catalog listing a provider,
 launch, adoption event, or payment integration. The MPP service catalog is inventory; a runtime
 HTTP 402 challenge or an authoritative dated announcement is needed to establish payment terms.
 Do not describe a proposal or commit as shipped unless the evidence says so.
-Keep the complete report under 650 words and finish with the Sources section.
+Keep the complete report under 1,000 words and finish with the Sources section.
 
 {json.dumps(evidence, ensure_ascii=False)}
 """
@@ -429,12 +457,12 @@ Keep the complete report under 650 words and finish with the Sources section.
         response = BEDROCK.converse(
             modelId=os.getenv("BEDROCK_MODEL_ID", "us.amazon.nova-2-lite-v1:0"),
             messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"maxTokens": 1600, "temperature": 0.2, "topP": 0.9},
+            inferenceConfig={"maxTokens": 2400, "temperature": 0.2, "topP": 0.9},
         )
         text = response["output"]["message"]["content"][0]["text"]
         ledger = "\n".join(
             f"[S{index}] {item['title']} — {item['url']}"
-            for index, item in enumerate(items[:10], 1)
+            for index, item in enumerate(items[:MAX_REPORT_ITEMS], 1)
         )
         return f"{text}\n\n## Source ledger\n{ledger}"
     except (ClientError, KeyError, IndexError, TypeError) as exc:
@@ -490,7 +518,7 @@ def send_report_email(report_date: str, summary: str, report_url: str) -> dict[s
         return {"status": "disabled", "reason": "EMAIL_TO or EMAIL_FROM is not configured"}
 
     subject = (
-        f"MPP Pulse Daily Intelligence | {report_date} | MPP, Tempo & Agent Payments Signal"
+        f"MPP Pulse Weekly Intelligence | Week Ending {report_date} | MPP, x402 & Payment Auth"
     )
     preview = next(
         (
@@ -501,22 +529,22 @@ def send_report_email(report_date: str, summary: str, report_url: str) -> dict[s
         "No verified new machine-payments signal was observed.",
     )
     text = (
-        f"MPP Pulse — {report_date}\n\n"
-        f"Today's pulse signal: {preview}\n\n"
-        "Your daily intelligence brief covers the emerging machine-payments layer, including "
-        "MPP services, Tempo ecosystem activity, and relevant GitHub development.\n\n"
+        f"MPP Pulse Weekly — week ending {report_date}\n\n"
+        f"This week's pulse signal: {preview}\n\n"
+        "Your weekly intelligence brief covers the emerging machine-payments layer, including "
+        "MPP, Tempo, x402, Payment Auth, HTTP 402, specification work, and community signals.\n\n"
         f"Read the complete cited report: {report_url}\n\n"
         f"{summary}\n\n"
-        "MPP Pulse is an autonomous daily intelligence service."
+        "MPP Pulse is an autonomous weekly intelligence service."
     )
     html_body = (
-        f"<h1>MPP Pulse — {html.escape(report_date)}</h1>"
-        f"<p><strong>Today's pulse signal:</strong> {html.escape(preview)}</p>"
-        "<p>Your daily intelligence brief covers the emerging machine-payments layer, "
-        "including MPP services, Tempo ecosystem activity, and relevant GitHub development.</p>"
+        f"<h1>MPP Pulse Weekly — week ending {html.escape(report_date)}</h1>"
+        f"<p><strong>This week's pulse signal:</strong> {html.escape(preview)}</p>"
+        "<p>Your weekly intelligence brief covers MPP, Tempo, x402, Payment Auth, HTTP 402, "
+        "specification work, and relevant community signals.</p>"
         f'<p><a href="{html.escape(report_url)}">Read the complete cited report</a></p>'
         f"<hr>{markdown_to_html(summary)}"
-        "<p>MPP Pulse is an autonomous daily intelligence service.</p>"
+        "<p>MPP Pulse is an autonomous weekly intelligence service.</p>"
     )
     try:
         SES.send_email(
@@ -548,27 +576,33 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     run_id = str(event.get("run_id") or uuid.uuid4())
     force = bool(event.get("force", False))
     trigger = str(event.get("trigger") or "manual")
+    window_days = int(event.get("window_days") or LOOKBACK_DAYS)
+    since = started - timedelta(days=window_days)
 
     if not force:
         try:
             TABLE.put_item(
-                Item={"pk": f"LOCK#{report_date}", "entity_type": "LOCK", "run_id": run_id},
+                Item={
+                    "pk": f"LOCK#WEEK#{report_date}",
+                    "entity_type": "LOCK",
+                    "run_id": run_id,
+                },
                 ConditionExpression="attribute_not_exists(pk)",
             )
         except ClientError as exc:
             if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
-                return {"status": "skipped", "reason": "daily_lock_exists", "date": report_date}
+                return {"status": "skipped", "reason": "weekly_lock_exists", "date": report_date}
             raise
 
     errors = []
     collected: list[dict[str, Any]] = []
     collectors = (
         ("mpp_catalog", collect_mpp),
-        ("tempo_blog", collect_tempo),
-        ("github", lambda: collect_github(started - timedelta(hours=24))),
-        ("hacker_news", lambda: collect_hacker_news(started - timedelta(hours=24))),
-        ("reddit", lambda: collect_reddit(started - timedelta(hours=24))),
-        ("x", lambda: collect_x(started - timedelta(hours=24))),
+        ("tempo_blog", lambda: collect_tempo(since)),
+        ("github", lambda: collect_github(since)),
+        ("hacker_news", lambda: collect_hacker_news(since)),
+        ("reddit", lambda: collect_reddit(since)),
+        ("x", lambda: collect_x(since)),
     )
     for name, collector in collectors:
         try:
@@ -579,16 +613,12 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     new_items = persist_new_items(collected, iso(started))
     new_items.sort(key=lambda item: item["importance_score"], reverse=True)
-    report_items = [item for item in new_items if item.get("news_eligible", False)]
-    if event.get("resummarize") and not report_items:
-        print(
-            json.dumps(
-                {
-                    "level": "INFO",
-                    "message": "resummarize ignored for stale or catalog-only evidence",
-                }
-            )
-        )
+    report_items_by_id = {
+        content_id(item): {**item, "importance_score": score(item)}
+        for item in collected
+        if item.get("news_eligible", False)
+    }
+    report_items = list(report_items_by_id.values())
     report_items.sort(key=lambda item: item["importance_score"], reverse=True)
     summary = summarize(report_date, report_items)
     report_html = render_html(report_date, summary, run_id)
@@ -615,6 +645,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         "run_id": run_id,
         "trigger": trigger,
         "report_date": report_date,
+        "window_days": window_days,
         "collected": len(collected),
         "new_items": len(new_items),
         "news_items": len(report_items),

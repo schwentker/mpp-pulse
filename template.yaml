@@ -89,12 +89,12 @@ Resources:
               Action: ses:SendEmail
               Resource: "*"
       Events:
-        DailySchedule:
+        WeeklySchedule:
           Type: ScheduleV2
           Properties:
-            Name: !Sub "${AWS::StackName}-daily"
-            Description: Autonomous daily MPP Pulse run
-            ScheduleExpression: cron(0 6 * * ? *)
+            Name: !Sub "${AWS::StackName}-weekly"
+            Description: Autonomous weekly MPP Pulse run every Sunday at 11:30 AM
+            ScheduleExpression: cron(30 11 ? * SUN *)
             ScheduleExpressionTimezone: !Ref ScheduleTimezone
             State: !Ref ScheduleState
             FlexibleTimeWindow:
@@ -102,7 +102,7 @@ Resources:
             RetryPolicy:
               MaximumEventAgeInSeconds: 3600
               MaximumRetryAttempts: 1
-            Input: '{"trigger":"schedule"}'
+            Input: '{"trigger":"schedule","window_days":7}'
 
   FunctionErrorAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -128,4 +128,4 @@ Outputs:
   BucketName:
     Value: !Ref ReportBucket
   ScheduleName:
-    Value: !Sub "${AWS::StackName}-daily"
+    Value: !Sub "${AWS::StackName}-weekly"
