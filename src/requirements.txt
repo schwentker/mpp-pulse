@@ -1,0 +1,1 @@
+# boto3 and botocore are provided by the AWS Lambda Python runtime.
