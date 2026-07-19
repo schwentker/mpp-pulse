@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Minimal always-on MPP and Tempo payments intelligence agent
+
+Parameters:
+  ScheduleState:
+    Type: String
+    Default: DISABLED
+    AllowedValues: [ENABLED, DISABLED]
+  ScheduleTimezone:
+    Type: String
+    Default: America/Los_Angeles
+  BedrockModelId:
+    Type: String
+    Default: us.amazon.nova-2-lite-v1:0
+  GitHubRepository:
+    Type: String
+    Default: tempoxyz/mpp
+
+Resources:
+  PulseTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
+  ReportBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireReports
+            Status: Enabled
+            ExpirationInDays: 30
+
+  PulseFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Architectures: [arm64]
+      MemorySize: 512
+      Timeout: 90
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref PulseTable
+          BUCKET_NAME: !Ref ReportBucket
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          GITHUB_REPOSITORY: !Ref GitHubRepository
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PulseTable
+        - S3CrudPolicy:
+            BucketName: !Ref ReportBucket
+        - Statement:
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource: "*"
+      Events:
+        DailySchedule:
+          Type: ScheduleV2
+          Properties:
+            Name: !Sub "${AWS::StackName}-daily"
+            Description: Autonomous daily MPP Pulse run
+            ScheduleExpression: cron(0 6 * * ? *)
+            ScheduleExpressionTimezone: !Ref ScheduleTimezone
+            State: !Ref ScheduleState
+            FlexibleTimeWindow:
+              Mode: "OFF"
+            RetryPolicy:
+              MaximumEventAgeInSeconds: 3600
+              MaximumRetryAttempts: 1
+            Input: '{"trigger":"schedule"}'
+
+  FunctionErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: MPP Pulse Lambda invocation errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref PulseFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  FunctionName:
+    Value: !Ref PulseFunction
+  TableName:
+    Value: !Ref PulseTable
+  BucketName:
+    Value: !Ref ReportBucket
+  ScheduleName:
+    Value: !Sub "${AWS::StackName}-daily"

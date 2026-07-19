@@ -1,0 +1,9 @@
+flowchart LR
+    A["EventBridge Scheduler<br/>6:00 AM America/Los_Angeles"] --> B["One AWS Lambda"]
+    C["MPP services catalog"] --> B
+    D["Tempo blog"] --> B
+    E["GitHub commits"] --> B
+    B --> F["DynamoDB<br/>locks, items, runs"]
+    B --> G["Amazon Bedrock<br/>Nova"]
+    G --> B
+    B --> H["Private S3<br/>daily HTML report"]
