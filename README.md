@@ -56,18 +56,7 @@ The production weekly schedule remains enabled.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    A["EventBridge Scheduler<br/>Sunday 11:30 AM America/Los_Angeles"] --> B["AWS Lambda<br/>Python 3.11"]
-    C["MPP services catalog"] --> B
-    D["Tempo blog"] --> B
-    E["GitHub commits"] --> B
-    B --> F["DynamoDB<br/>locks, evidence, runs"]
-    B --> G["Amazon Bedrock<br/>Nova 2 Lite"]
-    G --> B
-    B --> H["Private S3 bucket<br/>weekly HTML reports"]
-    B --> I["CloudWatch<br/>logs and error alarm"]
-```
+![MPP Pulse architecture](docs/screenshots/mpp-pulse-architecture.png)
 
 AWS resources are defined in [template.yaml](template.yaml):
 
@@ -400,7 +389,7 @@ Autonomous invocation:
 
 Generated report:
 
-![MPP Pulse HTML report](docs/screenshots/03-html-report.png)
+![MPP Pulse weekly report for the week ending July 19, 2026](docs/screenshots/mpp-pulse-weekly-20260719.jpg)
 
 The complete evidence checklist is in
 [docs/evidence-checklist.md](docs/evidence-checklist.md).

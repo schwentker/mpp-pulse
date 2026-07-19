@@ -3,7 +3,7 @@
 Capture these after deployment:
 
 - [x] CloudFormation stack in `UPDATE_COMPLETE`.
-- [x] EventBridge Scheduler detail page showing the daily schedule and timezone.
+- [x] EventBridge Scheduler detail page showing the weekly schedule and timezone.
 - [x] CloudWatch log showing an invocation with `trigger: demo-schedule`.
 - [x] Lambda log line containing `status`, `new_items`, and `report_key`.
 - [x] DynamoDB contains run and evidence records.
