@@ -10,6 +10,7 @@ import urllib.request
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from xml.etree import ElementTree
 
 import boto3
 from botocore.exceptions import ClientError
@@ -19,6 +20,10 @@ USER_AGENT = "mpp-pulse/0.1 (+https://github.com/OWNER/mpp-pulse)"
 MPP_CATALOG_URL = "https://mpp.dev/api/services"
 TEMPO_BLOG_URL = "https://tempo.xyz/blog"
 DEFAULT_GITHUB_REPO = "tempoxyz/mpp"
+REDDIT_SEARCH_URL = "https://www.reddit.com/search.rss"
+HACKER_NEWS_SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date"
+X_SEARCH_URL = "https://api.x.com/2/tweets/search/recent"
+NEWS_QUERIES = ("MPP", "machine payments", "Tempo payments", "agent payments")
 
 TABLE = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
 S3 = boto3.client("s3")
@@ -173,8 +178,127 @@ def collect_github(since: datetime) -> list[dict[str, Any]]:
     return items
 
 
+def parse_date(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def collect_hacker_news(since: datetime) -> list[dict[str, Any]]:
+    items = []
+    for query in NEWS_QUERIES:
+        params = urllib.parse.urlencode({"query": query, "tags": "story", "hitsPerPage": "20"})
+        body, _ = fetch(f"{HACKER_NEWS_SEARCH_URL}?{params}")
+        for hit in json.loads(body).get("hits", []):
+            published = parse_date(str(hit.get("created_at") or ""))
+            if not published or published < since:
+                continue
+            searchable = " ".join(
+                [str(hit.get("title") or ""), str(hit.get("story_text") or "")]
+            ).lower()
+            if not any(
+                term in searchable
+                for term in ("mpp", "machine payment", "tempo", "agent payment", "http 402", "x402")
+            ):
+                continue
+            object_id = str(hit.get("objectID") or "")
+            url = normalize_url(
+                str(hit.get("url") or f"https://news.ycombinator.com/item?id={object_id}")
+            )
+            items.append(
+                {
+                    "source": "hacker_news",
+                    "external_id": object_id or url,
+                    "title": f"Hacker News: {hit.get('title') or 'Untitled story'}",
+                    "url": url,
+                    "published_at": iso(published),
+                    "summary": str(hit.get("story_text") or hit.get("title") or "")[:2500],
+                    "category": "community",
+                    "news_eligible": True,
+                }
+            )
+    return items
+
+
+def collect_reddit(since: datetime) -> list[dict[str, Any]]:
+    items = []
+    for query in NEWS_QUERIES:
+        params = urllib.parse.urlencode({"q": query, "sort": "new", "t": "day"})
+        body, _ = fetch(f"{REDDIT_SEARCH_URL}?{params}")
+        root = ElementTree.fromstring(body)
+        for entry in root.findall("{http://www.w3.org/2005/Atom}entry"):
+            published = parse_date(
+                entry.findtext("{http://www.w3.org/2005/Atom}updated", default="")
+            )
+            if not published or published < since:
+                continue
+            link_node = entry.find("{http://www.w3.org/2005/Atom}link")
+            url = normalize_url(str(link_node.get("href") if link_node is not None else ""))
+            title = entry.findtext("{http://www.w3.org/2005/Atom}title", default="")
+            if not url or not title:
+                continue
+            items.append(
+                {
+                    "source": "reddit",
+                    "external_id": url,
+                    "title": f"Reddit: {title}",
+                    "url": url,
+                    "published_at": iso(published),
+                    "summary": "Recent Reddit discussion found through Reddit search.",
+                    "category": "community",
+                    "news_eligible": True,
+                }
+            )
+    return items
+
+
+def collect_x(since: datetime) -> list[dict[str, Any]]:
+    token = os.getenv("X_BEARER_TOKEN", "").strip()
+    if not token:
+        print(json.dumps({"level": "INFO", "source": "x", "status": "disabled_no_token"}))
+        return []
+    query = '(MPP OR "machine payments" OR Tempo OR "agent payments") -is:retweet lang:en'
+    params = urllib.parse.urlencode(
+        {
+            "query": query,
+            "start_time": iso(since),
+            "tweet.fields": "created_at,public_metrics,author_id",
+            "max_results": "50",
+        }
+    )
+    body, _ = fetch(f"{X_SEARCH_URL}?{params}", token=token)
+    items = []
+    for tweet in json.loads(body).get("data", []):
+        tweet_id = str(tweet.get("id") or "")
+        published = parse_date(str(tweet.get("created_at") or ""))
+        if not tweet_id or not published or published < since:
+            continue
+        text = str(tweet.get("text") or "")
+        items.append(
+            {
+                "source": "x",
+                "external_id": tweet_id,
+                "title": f"X: {text[:180]}",
+                "url": f"https://x.com/i/web/status/{tweet_id}",
+                "published_at": iso(published),
+                "summary": text[:2500],
+                "category": "community",
+                "news_eligible": True,
+            }
+        )
+    return items
+
+
 def score(item: dict[str, Any]) -> int:
-    base = {"mpp_catalog": 55, "tempo_blog": 50, "github": 45}.get(item["source"], 20)
+    base = {
+        "mpp_catalog": 55,
+        "tempo_blog": 50,
+        "github": 45,
+        "hacker_news": 30,
+        "reddit": 25,
+        "x": 25,
+    }.get(item["source"], 20)
     text = f"{item['title']} {item['summary']}".lower()
     for terms, points in (
         (("release", "launch", "available"), 12),
@@ -316,7 +440,7 @@ def send_report_email(report_date: str, summary: str, report_url: str) -> dict[s
         return {"status": "disabled", "reason": "EMAIL_TO or EMAIL_FROM is not configured"}
 
     subject = (
-        f"MPP Pulse Daily Intelligence | {report_date} | Machine Payments, MPP & Tempo Signal | $25/mo"
+        f"MPP Pulse Daily Intelligence | {report_date} | MPP, Tempo & Agent Payments Signal"
     )
     preview = next(
         (
@@ -391,7 +515,10 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     collectors = (
         ("mpp_catalog", collect_mpp),
         ("tempo_blog", collect_tempo),
-        ("github", lambda: collect_github(started - timedelta(hours=36))),
+        ("github", lambda: collect_github(started - timedelta(hours=24))),
+        ("hacker_news", lambda: collect_hacker_news(started - timedelta(hours=24))),
+        ("reddit", lambda: collect_reddit(started - timedelta(hours=24))),
+        ("x", lambda: collect_x(started - timedelta(hours=24))),
     )
     for name, collector in collectors:
         try:

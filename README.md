@@ -86,10 +86,10 @@ The weekend build intentionally watches three high-signal surfaces:
 - `https://tempo.xyz/blog`
 - `https://github.com/tempoxyz/mpp`
 
-X, LinkedIn, and Reddit are not part of the deployed collector path. Broad
-social ingestion adds credentials, permissions, rate limits, and noisy
-repetition without improving the core autonomous-agent demonstration. They are
-documented as future adapters after the primary-source workflow is stable.
+Hacker News and Reddit are optional community collectors in the deployed path,
+with a strict 24-hour window and relevance filtering. X/Twitter is supported
+only when an official API bearer token is configured as `X_BEARER_TOKEN`.
+LinkedIn and broad web search remain future adapters.
 
 ## Evidence and AI safety
 
@@ -416,7 +416,7 @@ Required tag: `#agents`
 - Track entity histories for providers and payment rails
 - Email delivery through Amazon SES is configured with the `EmailTo` and `EmailFrom`
   deployment parameters. In the SES sandbox, verify the sender and recipient first.
-- Add approved Reddit, X, and LinkedIn adapters
+- Improve Reddit rate-limit handling and add approved LinkedIn adapters
 - Publish selected reports through an MPP-protected API
 
 ## License
