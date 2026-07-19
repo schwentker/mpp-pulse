@@ -405,17 +405,6 @@ Generated report:
 The complete evidence checklist is in
 [docs/evidence-checklist.md](docs/evidence-checklist.md).
 
-## AWS Builder Center article
-
-The challenge article draft is available at
-[docs/article.md](docs/article.md).
-
-Required title:
-
-> Weekend Agent Challenge: MPP Pulse, an Always-On Payments Intelligence Agent
-
-Required tag: `#agents`
-
 ## Roadmap
 
 - Detect field-level changes in existing MPP catalog records
