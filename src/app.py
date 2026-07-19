@@ -105,7 +105,8 @@ def collect_mpp() -> list[dict[str, Any]]:
                 ),
                 "published_at": iso(now_utc()),
                 "summary": json.dumps(service, sort_keys=True, default=str)[:2500],
-                "category": "service",
+                "category": "catalog_snapshot",
+                "news_eligible": False,
             }
         )
     return items
@@ -136,6 +137,7 @@ def collect_tempo() -> list[dict[str, Any]]:
             "published_at": iso(now_utc()),
             "summary": "Official Tempo blog entry discovered on the blog index.",
             "category": "ecosystem",
+            "news_eligible": False,
         }
         for url, title in list(links.items())[:20]
     ]
@@ -165,6 +167,7 @@ def collect_github(since: datetime) -> list[dict[str, Any]]:
                 "published_at": str(author.get("date") or iso(now_utc())),
                 "summary": message[:2500],
                 "category": "code",
+                "news_eligible": True,
             }
         )
     return items
@@ -208,7 +211,11 @@ def persist_new_items(items: list[dict[str, Any]], seen_at: str) -> list[dict[st
 
 def fallback_summary(report_date: str, items: list[dict[str, Any]]) -> str:
     if not items:
-        return f"MPP Pulse for {report_date}: no newly observed evidence was found."
+        return (
+            f"MPP Pulse — {report_date}\n\n"
+            "Pulse signal: no verified new development was found in the last 24 hours. "
+            "The MPP catalog is tracked as inventory, not treated as news."
+        )
     lines = [f"MPP Pulse — {report_date}", "", "Top newly observed signals:"]
     for index, item in enumerate(items[:10], 1):
         lines.append(
@@ -233,7 +240,12 @@ def summarize(report_date: str, items: list[dict[str, Any]]) -> str:
     ]
     prompt = f"""Create a concise daily machine-payments intelligence brief for {report_date}.
 Use only the evidence JSON below. Cite every factual claim with [S#]. Clearly label inference.
+Start with exactly one line beginning `Pulse signal:` that summarizes the day's most important
+verified change, or says that no verified new development was found.
 Include: Executive signal, Material developments, Why it matters, What to verify next, Sources.
+Only treat evidence marked news_eligible as recent news. Do not call a catalog listing a provider,
+launch, adoption event, or payment integration. The MPP service catalog is inventory; a runtime
+HTTP 402 challenge or an authoritative dated announcement is needed to establish payment terms.
 Do not describe a proposal or commit as shipped unless the evidence says so.
 Keep the complete report under 650 words and finish with the Sources section.
 
@@ -306,7 +318,14 @@ def send_report_email(report_date: str, summary: str, report_url: str) -> dict[s
     subject = (
         f"MPP Pulse Daily Intelligence | {report_date} | Machine Payments, MPP & Tempo Signal | $25/mo"
     )
-    preview = summary.split("\n", 1)[0].strip() or "No new machine-payments signal was observed."
+    preview = next(
+        (
+            line.removeprefix("Pulse signal:").strip()
+            for line in summary.splitlines()
+            if line.lower().startswith("pulse signal:")
+        ),
+        "No verified new machine-payments signal was observed.",
+    )
     text = (
         f"MPP Pulse — {report_date}\n\n"
         f"Today's pulse signal: {preview}\n\n"
@@ -383,10 +402,17 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     new_items = persist_new_items(collected, iso(started))
     new_items.sort(key=lambda item: item["importance_score"], reverse=True)
-    report_items = new_items
+    report_items = [item for item in new_items if item.get("news_eligible", False)]
     if event.get("resummarize") and not report_items:
-        report_items = [{**item, "importance_score": score(item)} for item in collected]
-        report_items.sort(key=lambda item: item["importance_score"], reverse=True)
+        print(
+            json.dumps(
+                {
+                    "level": "INFO",
+                    "message": "resummarize ignored for stale or catalog-only evidence",
+                }
+            )
+        )
+    report_items.sort(key=lambda item: item["importance_score"], reverse=True)
     summary = summarize(report_date, report_items)
     report_html = render_html(report_date, summary, run_id)
     report_key = f"reports/{report_date}/{run_id}.html"
@@ -414,6 +440,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         "report_date": report_date,
         "collected": len(collected),
         "new_items": len(new_items),
+        "news_items": len(report_items),
         "collector_errors": errors,
         "report_key": report_key,
         "email": email,
