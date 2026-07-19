@@ -20,10 +20,32 @@ USER_AGENT = "mpp-pulse/0.1 (+https://github.com/OWNER/mpp-pulse)"
 MPP_CATALOG_URL = "https://mpp.dev/api/services"
 TEMPO_BLOG_URL = "https://tempo.xyz/blog"
 DEFAULT_GITHUB_REPO = "tempoxyz/mpp"
+PAYMENTAUTH_GITHUB_REPO = "tempoxyz/mpp-specs"
 REDDIT_SEARCH_URL = "https://www.reddit.com/search.rss"
 HACKER_NEWS_SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date"
 X_SEARCH_URL = "https://api.x.com/2/tweets/search/recent"
-NEWS_QUERIES = ("MPP", "machine payments", "Tempo payments", "agent payments")
+NEWS_QUERIES = (
+    "MPP",
+    '"machine payments protocol"',
+    "x402",
+    '"x.402"',
+    '"HTTP 402"',
+    "paymentauth.org",
+    '"draft-httpauth-payment-00"',
+    '"draft-ryan-httpauth-payment"',
+    '"Brendan Ryan" "Tempo Labs"',
+    '"Jake Moxey" "Tempo Labs"',
+    '"Tom Meagher" "Tempo Labs"',
+    '"Jeff Weinstein" Stripe',
+    '"Steve Kaliski" Stripe',
+)
+WATCHED_PEOPLE = (
+    ("brendan ryan", "tempo"),
+    ("jake moxey", "tempo"),
+    ("tom meagher", "tempo"),
+    ("jeff weinstein", "stripe"),
+    ("steve kaliski", "stripe"),
+)
 
 TABLE = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
 S3 = boto3.client("s3")
@@ -149,32 +171,35 @@ def collect_tempo() -> list[dict[str, Any]]:
 
 
 def collect_github(since: datetime) -> list[dict[str, Any]]:
-    repo = os.getenv("GITHUB_REPOSITORY", DEFAULT_GITHUB_REPO)
+    items = []
+    configured_repo = os.getenv("GITHUB_REPOSITORY", DEFAULT_GITHUB_REPO)
+    repos = dict.fromkeys((configured_repo, PAYMENTAUTH_GITHUB_REPO))
     params = urllib.parse.urlencode({"since": iso(since), "per_page": "20"})
     token = os.getenv("GITHUB_TOKEN") or None
-    body, _ = fetch(f"https://api.github.com/repos/{repo}/commits?{params}", token=token)
-    payload = json.loads(body)
-    if not isinstance(payload, list):
-        raise ValueError("GitHub commits endpoint returned a non-list response")
-
-    items = []
-    for record in payload:
-        commit = record.get("commit") or {}
-        author = commit.get("author") or {}
-        message = str(commit.get("message") or "")
-        sha = str(record.get("sha") or "")
-        items.append(
-            {
-                "source": "github",
-                "external_id": sha,
-                "title": f"{repo}: {message.splitlines()[0][:180]}",
-                "url": normalize_url(str(record.get("html_url") or f"https://github.com/{repo}")),
-                "published_at": str(author.get("date") or iso(now_utc())),
-                "summary": message[:2500],
-                "category": "code",
-                "news_eligible": True,
-            }
-        )
+    for repo in repos:
+        body, _ = fetch(f"https://api.github.com/repos/{repo}/commits?{params}", token=token)
+        payload = json.loads(body)
+        if not isinstance(payload, list):
+            raise ValueError(f"GitHub commits endpoint returned a non-list response for {repo}")
+        for record in payload:
+            commit = record.get("commit") or {}
+            author = commit.get("author") or {}
+            message = str(commit.get("message") or "")
+            sha = str(record.get("sha") or "")
+            items.append(
+                {
+                    "source": "github",
+                    "external_id": f"{repo}:{sha}",
+                    "title": f"{repo}: {message.splitlines()[0][:180]}",
+                    "url": normalize_url(
+                        str(record.get("html_url") or f"https://github.com/{repo}")
+                    ),
+                    "published_at": str(author.get("date") or iso(now_utc())),
+                    "summary": message[:2500],
+                    "category": "code",
+                    "news_eligible": True,
+                }
+            )
     return items
 
 
@@ -183,6 +208,28 @@ def parse_date(value: str) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
     except ValueError:
         return None
+
+
+def is_relevant_payment_news(text: str) -> bool:
+    normalized = text.lower()
+    if "mpp.dev" in normalized or "paymentauth.org" in normalized:
+        return True
+    if re.search(r"\bmpp\b", normalized):
+        return True
+    if re.search(r"\bmachine payments?(?: protocol)?\b", normalized):
+        return True
+    if re.search(r"\bagentic? payments?\b|\bagent payments?\b", normalized):
+        return True
+    if re.search(r"\b(?:http[\s.-]*)?402\b|\bx[.]?402\b", normalized):
+        return True
+    if re.search(r"\bdraft-(?:ryan-)?httpauth-payment(?:-00)?\b", normalized):
+        return True
+    if any(name in normalized and organization in normalized for name, organization in WATCHED_PEOPLE):
+        return True
+    return bool(
+        re.search(r"\btempo\b", normalized)
+        and re.search(r"\b(payment|protocol|stablecoin|agent|crypto|settlement)\w*\b", normalized)
+    )
 
 
 def collect_hacker_news(since: datetime) -> list[dict[str, Any]]:
@@ -196,11 +243,8 @@ def collect_hacker_news(since: datetime) -> list[dict[str, Any]]:
                 continue
             searchable = " ".join(
                 [str(hit.get("title") or ""), str(hit.get("story_text") or "")]
-            ).lower()
-            if not any(
-                term in searchable
-                for term in ("mpp", "machine payment", "tempo", "agent payment", "http 402", "x402")
-            ):
+            )
+            if not is_relevant_payment_news(searchable):
                 continue
             object_id = str(hit.get("objectID") or "")
             url = normalize_url(
@@ -258,7 +302,13 @@ def collect_x(since: datetime) -> list[dict[str, Any]]:
     if not token:
         print(json.dumps({"level": "INFO", "source": "x", "status": "disabled_no_token"}))
         return []
-    query = '(MPP OR "machine payments" OR Tempo OR "agent payments") -is:retweet lang:en'
+    query = (
+        '(MPP OR "machine payments protocol" OR x402 OR "x.402" OR "paymentauth.org" '
+        'OR "HTTP 402" OR "draft-httpauth-payment-00" OR "draft-ryan-httpauth-payment" '
+        'OR from:jeff_weinstein OR from:stevekaliski '
+        'OR ("Brendan Ryan" Tempo) OR ("Jake Moxey" Tempo) OR ("Tom Meagher" Tempo)) '
+        "-is:retweet lang:en"
+    )
     params = urllib.parse.urlencode(
         {
             "query": query,

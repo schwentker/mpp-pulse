@@ -67,3 +67,24 @@ def test_markdown_report_renders_headings_bold_and_links():
     assert "<h2>Signal</h2>" in rendered
     assert "<strong>MPP</strong>" in rendered
     assert 'href="https://mpp.dev"' in rendered
+
+
+def test_news_relevance_rejects_unrelated_hacker_news_titles():
+    unrelated = (
+        "Show HN: Eremite, an offline-first data layer that can talk to any back end "
+        "with temporary local storage"
+    )
+    assert not app.is_relevant_payment_news(unrelated)
+
+
+def test_news_relevance_accepts_explicit_machine_payment_terms():
+    assert app.is_relevant_payment_news("MPP adds another HTTP 402 payment method")
+    assert app.is_relevant_payment_news("Tempo launches stablecoin settlement for agents")
+    assert app.is_relevant_payment_news("x.402 support announced")
+    assert app.is_relevant_payment_news("paymentauth.org published draft-httpauth-payment-00")
+
+
+def test_news_relevance_accepts_watched_people_only_with_organization():
+    assert app.is_relevant_payment_news("Jake Moxey at Tempo Labs updated the draft")
+    assert app.is_relevant_payment_news("Steve Kaliski from Stripe shared a protocol update")
+    assert not app.is_relevant_payment_news("A different Brendan Ryan released a photography book")
