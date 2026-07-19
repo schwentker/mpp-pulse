@@ -10,6 +10,9 @@ Protocol (MPP) and Tempo ecosystem. It wakes up every Sunday, searches the
 preceding seven days, asks Amazon Nova to prepare a cited briefing, emails it,
 and saves a private HTML report for review.
 
+MPP Pulse is the open-source engine behind a weekly machine-payments
+intelligence brief. To receive the report, subscriptions are opening soon.
+
 The project was built for the AWS Builder Center Weekend Agent Challenge with a
 deliberately small architecture: one schedule, one Lambda, DynamoDB, S3, and
 Amazon Bedrock.
@@ -87,6 +90,15 @@ The protocol watchlist includes `mpp.dev`, “Machine Payments Protocol,” `x40
 Ryan, Jake Moxey, and Tom Meagher with Tempo context, plus Jeff Weinstein and
 Steve Kaliski with Stripe context. On X, the known accounts
 `@jeff_weinstein` and `@stevekaliski` are included directly.
+
+## Methodology
+
+Evidence enters a report only with direct support: matching terms in the title,
+URL, text, repository, or recognized author context. Primary sources outrank
+community discussion. Catalog inventory is not treated as news. Proposals are
+distinguished from shipped changes. Scoring weighs source authority, recency,
+protocol significance, implementation activity, adoption signals, and payment
+relevance; exact weights and tuned rules evolve privately.
 
 ## Evidence and AI safety
 
@@ -396,14 +408,15 @@ The complete evidence checklist is in
 
 ## Roadmap
 
-- Detect field-level changes in existing MPP catalog records
-- Add GitHub releases and pull requests
-- Cluster evidence across sources
-- Track entity histories for providers and payment rails
-- Email delivery through Amazon SES is configured with the `EmailTo` and `EmailFrom`
-  deployment parameters. In the SES sandbox, verify the sender and recipient first.
-- Improve Reddit rate-limit handling and add approved LinkedIn adapters
-- Publish selected reports through an MPP-protected API
+- Detect material field-level changes in MPP catalog records
+- Add GitHub release, pull request, and specification-change monitoring across
+  MPP, PaymentAuth, HTTP 402, and x402
+- Distinguish proposals, announcements, implementations, and verified deployments
+- Improve evidence provenance, corroboration, and confidence classification
+- Cluster related evidence across primary and community sources
+- Surface longitudinal changes across providers, payment rails, and protocol
+  adoption
+- Explore MPP-native distribution experiments for selected research
 
 ## License
 
