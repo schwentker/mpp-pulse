@@ -185,6 +185,22 @@ def parse_date(value: str) -> datetime | None:
         return None
 
 
+def is_relevant_payment_news(text: str) -> bool:
+    normalized = text.lower()
+    if re.search(r"\bmpp\b", normalized):
+        return True
+    if re.search(r"\bmachine payments?\b", normalized):
+        return True
+    if re.search(r"\bagentic? payments?\b|\bagent payments?\b", normalized):
+        return True
+    if re.search(r"\b(?:http[\s-]*)?402\b|\bx402\b", normalized):
+        return True
+    return bool(
+        re.search(r"\btempo\b", normalized)
+        and re.search(r"\b(payment|protocol|stablecoin|agent|crypto|settlement)\w*\b", normalized)
+    )
+
+
 def collect_hacker_news(since: datetime) -> list[dict[str, Any]]:
     items = []
     for query in NEWS_QUERIES:
@@ -196,11 +212,8 @@ def collect_hacker_news(since: datetime) -> list[dict[str, Any]]:
                 continue
             searchable = " ".join(
                 [str(hit.get("title") or ""), str(hit.get("story_text") or "")]
-            ).lower()
-            if not any(
-                term in searchable
-                for term in ("mpp", "machine payment", "tempo", "agent payment", "http 402", "x402")
-            ):
+            )
+            if not is_relevant_payment_news(searchable):
                 continue
             object_id = str(hit.get("objectID") or "")
             url = normalize_url(
