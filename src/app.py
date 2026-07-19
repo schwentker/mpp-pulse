@@ -23,6 +23,7 @@ DEFAULT_GITHUB_REPO = "tempoxyz/mpp"
 TABLE = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
 S3 = boto3.client("s3")
 BEDROCK = boto3.client("bedrock-runtime")
+SES = boto3.client("ses")
 
 
 def now_utc() -> datetime:
@@ -296,6 +297,57 @@ footer{{margin-top:40px;color:#667085;border-top:1px solid #d0d5dd;padding-top:1
 </body></html>"""
 
 
+def send_report_email(report_date: str, summary: str, report_url: str) -> dict[str, Any]:
+    recipient = os.getenv("EMAIL_TO", "").strip()
+    sender = os.getenv("EMAIL_FROM", "").strip()
+    if not recipient or not sender:
+        return {"status": "disabled", "reason": "EMAIL_TO or EMAIL_FROM is not configured"}
+
+    subject = (
+        f"MPP Pulse Daily Intelligence | {report_date} | Machine Payments, MPP & Tempo Signal | $25/mo"
+    )
+    preview = summary.split("\n", 1)[0].strip() or "No new machine-payments signal was observed."
+    text = (
+        f"MPP Pulse — {report_date}\n\n"
+        f"Today's pulse signal: {preview}\n\n"
+        "Your daily intelligence brief covers the emerging machine-payments layer, including "
+        "MPP services, Tempo ecosystem activity, and relevant GitHub development.\n\n"
+        f"Read the complete cited report: {report_url}\n\n"
+        f"{summary}\n\n"
+        "MPP Pulse is an autonomous daily intelligence service."
+    )
+    html_body = (
+        f"<h1>MPP Pulse — {html.escape(report_date)}</h1>"
+        f"<p><strong>Today's pulse signal:</strong> {html.escape(preview)}</p>"
+        "<p>Your daily intelligence brief covers the emerging machine-payments layer, "
+        "including MPP services, Tempo ecosystem activity, and relevant GitHub development.</p>"
+        f'<p><a href="{html.escape(report_url)}">Read the complete cited report</a></p>'
+        f"<hr>{markdown_to_html(summary)}"
+        "<p>MPP Pulse is an autonomous daily intelligence service.</p>"
+    )
+    try:
+        SES.send_email(
+            Source=sender,
+            Destination={"ToAddresses": [recipient]},
+            Message={
+                "Subject": {"Data": subject, "Charset": "UTF-8"},
+                "Body": {
+                    "Text": {"Data": text, "Charset": "UTF-8"},
+                    "Html": {"Data": html_body, "Charset": "UTF-8"},
+                },
+            },
+        )
+    except ClientError as exc:
+        error = exc.response.get("Error", {})
+        return {
+            "status": "failed",
+            "recipient": recipient,
+            "subject": subject,
+            "error": f"{error.get('Code', 'EmailError')}: {error.get('Message', str(exc))}"[:500],
+        }
+    return {"status": "sent", "recipient": recipient, "subject": subject}
+
+
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     del context
     started = now_utc()
@@ -345,6 +397,14 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         ContentType="text/html; charset=utf-8",
         ServerSideEncryption="AES256",
     )
+    report_url = S3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": os.environ["BUCKET_NAME"], "Key": report_key},
+        ExpiresIn=60 * 60 * 24 * 7,
+    )
+    email = send_report_email(report_date, summary, report_url)
+    if email.get("status") == "failed":
+        errors.append({"collector": "email", "error": str(email.get("error", "email delivery failed"))})
 
     status = "SUCCEEDED" if not errors else "PARTIAL_SUCCESS"
     result = {
@@ -356,6 +416,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         "new_items": len(new_items),
         "collector_errors": errors,
         "report_key": report_key,
+        "email": email,
     }
     TABLE.put_item(
         Item={

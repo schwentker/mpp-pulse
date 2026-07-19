@@ -414,7 +414,8 @@ Required tag: `#agents`
 - Add GitHub releases and pull requests
 - Cluster evidence across sources
 - Track entity histories for providers and payment rails
-- Add optional email delivery through Amazon SES
+- Email delivery through Amazon SES is configured with the `EmailTo` and `EmailFrom`
+  deployment parameters. In the SES sandbox, verify the sender and recipient first.
 - Add approved Reddit, X, and LinkedIn adapters
 - Publish selected reports through an MPP-protected API
 

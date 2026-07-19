@@ -16,6 +16,12 @@ Parameters:
   GitHubRepository:
     Type: String
     Default: tempoxyz/mpp
+  EmailTo:
+    Type: String
+    Default: mpp-pulse@sandboxlabs.ai
+  EmailFrom:
+    Type: String
+    Default: mpp-pulse@sandboxlabs.ai
 
 Resources:
   PulseTable:
@@ -68,6 +74,8 @@ Resources:
           BUCKET_NAME: !Ref ReportBucket
           BEDROCK_MODEL_ID: !Ref BedrockModelId
           GITHUB_REPOSITORY: !Ref GitHubRepository
+          EMAIL_TO: !Ref EmailTo
+          EMAIL_FROM: !Ref EmailFrom
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref PulseTable
@@ -76,6 +84,9 @@ Resources:
         - Statement:
             - Effect: Allow
               Action: bedrock:InvokeModel
+              Resource: "*"
+            - Effect: Allow
+              Action: ses:SendEmail
               Resource: "*"
       Events:
         DailySchedule:
