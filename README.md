@@ -6,9 +6,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 MPP Pulse is an always-on AWS intelligence agent for the Machine Payments
-Protocol (MPP) and Tempo ecosystem. It wakes up every morning, checks primary
-sources, identifies newly observed evidence, asks Amazon Nova to prepare a
-cited briefing, and saves a private HTML report for review.
+Protocol (MPP) and Tempo ecosystem. It wakes up every Sunday, searches the
+preceding seven days, asks Amazon Nova to prepare a cited briefing, emails it,
+and saves a private HTML report for review.
 
 The project was built for the AWS Builder Center Weekend Agent Challenge with a
 deliberately small architecture: one schedule, one Lambda, DynamoDB, S3, and
@@ -16,18 +16,19 @@ Amazon Bedrock.
 
 ## What it does
 
-Every day at 6:00 AM Pacific, MPP Pulse:
+Every Sunday at 11:30 AM Pacific, MPP Pulse:
 
 1. Fetches the public MPP services catalog.
 2. Checks the official Tempo blog index.
 3. Retrieves recent commits from the MPP and PaymentAuth specification repositories.
-4. Normalizes URLs and creates stable content identities.
-5. Uses conditional DynamoDB writes to suppress unchanged evidence.
-6. Applies deterministic importance scoring.
-7. Sends at most ten ranked evidence records to Amazon Nova 2 Lite.
-8. Produces a cited report with an exact source ledger.
-9. Saves the finished report as private, encrypted HTML in Amazon S3.
-10. Writes structured run results to CloudWatch and DynamoDB.
+4. Searches Hacker News, Reddit, and optionally X for relevant seven-day signals.
+5. Normalizes URLs and creates stable content identities.
+6. Uses conditional DynamoDB writes to suppress duplicate evidence storage.
+7. Applies deterministic importance scoring and ranks up to 50 report items.
+8. Sends the ranked weekly evidence packet to Amazon Nova 2 Lite.
+9. Produces and emails a cited report with an exact source ledger.
+10. Saves the finished report as private, encrypted HTML in Amazon S3.
+11. Writes structured run results to CloudWatch and DynamoDB.
 
 Collectors fail independently. If one source is unavailable, the remaining
 sources can still produce a `PARTIAL_SUCCESS` report. If Bedrock is unavailable,
@@ -40,32 +41,31 @@ The reference deployment has been tested in `us-west-2`.
 | Check | Result |
 |---|---|
 | CloudFormation stack | `UPDATE_COMPLETE` |
-| Daily schedule | Enabled |
-| Schedule | `cron(0 6 * * ? *)` |
+| Weekly schedule | Enabled |
+| Schedule | `cron(30 11 ? * SUN *)` |
 | Timezone | `America/Los_Angeles` |
 | Model | `us.amazon.nova-2-lite-v1:0` |
 | Autonomous evidence run | `SUCCEEDED` |
 | Evidence collected | 121 records |
 | Duplicate inserts on repeat run | 0 |
 | Collector errors | 0 |
-| Unit tests | 6 passing |
+| Unit tests | 11 passing |
 | SAM validation and build | Passing |
 
-The one-time schedule used to prove autonomous execution deleted itself after
-completion. The production daily schedule remains enabled.
+The production weekly schedule remains enabled.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A["EventBridge Scheduler<br/>6:00 AM America/Los_Angeles"] --> B["AWS Lambda<br/>Python 3.11"]
+    A["EventBridge Scheduler<br/>Sunday 11:30 AM America/Los_Angeles"] --> B["AWS Lambda<br/>Python 3.11"]
     C["MPP services catalog"] --> B
     D["Tempo blog"] --> B
     E["GitHub commits"] --> B
     B --> F["DynamoDB<br/>locks, evidence, runs"]
     B --> G["Amazon Bedrock<br/>Nova 2 Lite"]
     G --> B
-    B --> H["Private S3 bucket<br/>daily HTML reports"]
+    B --> H["Private S3 bucket<br/>weekly HTML reports"]
     B --> I["CloudWatch<br/>logs and error alarm"]
 ```
 
@@ -88,7 +88,7 @@ The weekend build intentionally watches three high-signal surfaces:
 - `https://github.com/tempoxyz/mpp-specs` (the source for `paymentauth.org`)
 
 Hacker News and Reddit are optional community collectors in the deployed path,
-with a strict 24-hour window and relevance filtering. X/Twitter is supported
+with a strict seven-day window and relevance filtering. X/Twitter is supported
 only when an official API bearer token is configured as `X_BEARER_TOKEN`.
 LinkedIn and broad web search remain future adapters.
 
@@ -117,7 +117,7 @@ The prompt requires the model to:
 - Cite factual claims with `[S#]`
 - Label inference explicitly
 - Avoid treating a commit or proposal as a shipped feature
-- Keep the report below 650 words
+- Keep the report below 1,000 words
 
 The application appends its own deterministic source ledger after model
 generation. This guarantees that cited evidence retains exact URLs even if the
@@ -129,7 +129,7 @@ DynamoDB uses a single string partition key:
 
 | Record | Key pattern | Purpose |
 |---|---|---|
-| Daily lock | `LOCK#YYYY-MM-DD` | Prevent repeated scheduled processing |
+| Weekly lock | `LOCK#WEEK#YYYY-MM-DD` | Prevent repeated weekly processing |
 | Evidence | `ITEM#SHA256` | Store a stable version of observed content |
 | Run | `RUN#UUID` | Record status, counts, errors, and report location |
 
@@ -142,12 +142,12 @@ Manual demonstration events can set:
 ```json
 {
   "force": true,
-  "resummarize": true
+  "window_days": 7
 }
 ```
 
-`force` bypasses the daily lock. `resummarize` regenerates a report from the
-current source packet without duplicating evidence records.
+`force` bypasses the weekly lock. `window_days` controls the reporting window;
+the production schedule and manual example both use seven days.
 
 S3 reports use:
 
@@ -222,7 +222,7 @@ sam build
 Expected result:
 
 ```text
-6 passed
+11 passed
 Build Succeeded
 template.yaml is a valid SAM Template
 ```
@@ -286,7 +286,7 @@ Then verify:
 3. S3 contains the reported HTML object.
 4. A second forced run reports zero newly inserted unchanged items.
 
-## Enable the daily schedule
+## Enable the weekly schedule
 
 ```bash
 sam deploy \
@@ -306,7 +306,7 @@ Verify the result:
 
 ```bash
 aws scheduler get-schedule \
-  --name mpp-pulse-dev-daily \
+  --name mpp-pulse-dev-weekly \
   --region us-west-2 \
   --query '{State:State,Expression:ScheduleExpression,Timezone:ScheduleExpressionTimezone}'
 ```
@@ -335,21 +335,21 @@ resource references.
 5. Confirm run and evidence records in DynamoDB.
 6. Confirm a rendered HTML object in S3.
 7. Review CloudWatch for collector or Bedrock errors.
-8. Repeat the run and confirm zero duplicate inserts.
+8. Repeat the run and confirm duplicate evidence is not inserted again.
 9. Enable the production schedule.
 10. Capture a genuine EventBridge-triggered invocation.
 
 ## Cost and failure controls
 
-- One scheduled invocation per day
+- One scheduled invocation per week
 - Reserved Lambda concurrency of one
 - 90-second Lambda timeout
-- Three bounded source collectors
+- Six bounded source collectors
 - At most 100 MPP catalog records
 - At most 20 Tempo links
-- At most 20 recent GitHub commits
-- At most 10 evidence records sent to Bedrock
-- Bedrock output capped at 1,600 tokens
+- At most 100 recent commits from each watched GitHub repository
+- Up to 50 ranked evidence records sent to Bedrock
+- Bedrock output capped at 2,400 tokens
 - DynamoDB on-demand billing
 - Private encrypted S3 storage
 - 30-day S3 lifecycle expiration
@@ -388,7 +388,7 @@ CloudFormation deployment:
 
 ![CloudFormation stack events](docs/screenshots/01-stack-complete.png)
 
-Enabled daily schedule:
+Enabled weekly schedule:
 
 ![EventBridge enabled status](docs/screenshots/02a-eventbridge-enabled.png)
 
