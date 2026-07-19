@@ -20,7 +20,7 @@ Every day at 6:00 AM Pacific, MPP Pulse:
 
 1. Fetches the public MPP services catalog.
 2. Checks the official Tempo blog index.
-3. Retrieves recent commits from the MPP GitHub repository.
+3. Retrieves recent commits from the MPP and PaymentAuth specification repositories.
 4. Normalizes URLs and creates stable content identities.
 5. Uses conditional DynamoDB writes to suppress unchanged evidence.
 6. Applies deterministic importance scoring.
@@ -85,11 +85,19 @@ The weekend build intentionally watches three high-signal surfaces:
 - `https://mpp.dev/api/services`
 - `https://tempo.xyz/blog`
 - `https://github.com/tempoxyz/mpp`
+- `https://github.com/tempoxyz/mpp-specs` (the source for `paymentauth.org`)
 
 Hacker News and Reddit are optional community collectors in the deployed path,
 with a strict 24-hour window and relevance filtering. X/Twitter is supported
 only when an official API bearer token is configured as `X_BEARER_TOKEN`.
 LinkedIn and broad web search remain future adapters.
+
+The protocol watchlist includes `mpp.dev`, “Machine Payments Protocol,” `x402`,
+`x.402`, `paymentauth.org`, “HTTP 402,” `draft-httpauth-payment-00`, and
+`draft-ryan-httpauth-payment`. Named-author signals are also tracked for Brendan
+Ryan, Jake Moxey, and Tom Meagher with Tempo context, plus Jeff Weinstein and
+Steve Kaliski with Stripe context. On X, the known accounts
+`@jeff_weinstein` and `@stevekaliski` are included directly.
 
 ## Evidence and AI safety
 
