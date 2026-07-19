@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">MPP Pulse AWS Architecture</title>
+  <desc id="desc">EventBridge Scheduler triggers one Lambda that collects MPP, Tempo, and GitHub evidence, stores state in DynamoDB, summarizes with Bedrock Nova, and writes an HTML report to S3.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .panel { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; }
+      .source { fill: #eef6ff; stroke: #60a5fa; stroke-width: 2; }
+      .compute { fill: #fff7ed; stroke: #fb923c; stroke-width: 2; }
+      .store { fill: #ecfdf5; stroke: #34d399; stroke-width: 2; }
+      .ai { fill: #f5f3ff; stroke: #8b5cf6; stroke-width: 2; }
+      .output { fill: #fefce8; stroke: #eab308; stroke-width: 2; }
+      .label { fill: #0f172a; font-family: Arial, Helvetica, sans-serif; font-size: 28px; font-weight: 700; }
+      .small { fill: #334155; font-family: Arial, Helvetica, sans-serif; font-size: 20px; }
+      .tiny { fill: #475569; font-family: Arial, Helvetica, sans-serif; font-size: 17px; }
+      .title { fill: #0f172a; font-family: Arial, Helvetica, sans-serif; font-size: 42px; font-weight: 800; }
+      .subtitle { fill: #475569; font-family: Arial, Helvetica, sans-serif; font-size: 22px; }
+      .arrow { stroke: #334155; stroke-width: 4; fill: none; marker-end: url(#arrowhead); }
+      .arrow-soft { stroke: #64748b; stroke-width: 3; fill: none; marker-end: url(#arrowhead-soft); stroke-dasharray: 8 8; }
+      .badge { fill: #0f172a; }
+      .badge-text { fill: #ffffff; font-family: Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 700; }
+    </style>
+    <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#334155"/>
+    </marker>
+    <marker id="arrowhead-soft" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1400" height="860"/>
+  <text class="title" x="70" y="78">MPP Pulse: Always-On Payments Intelligence</text>
+  <text class="subtitle" x="70" y="116">Smallest qualifying AWS Weekend Agent Challenge architecture</text>
+
+  <rect class="panel" x="54" y="154" width="1292" height="640" rx="18"/>
+
+  <rect class="source" x="90" y="220" width="260" height="110" rx="14"/>
+  <text class="label" x="120" y="266">MPP Catalog</text>
+  <text class="small" x="120" y="298">services + metadata</text>
+
+  <rect class="source" x="90" y="375" width="260" height="110" rx="14"/>
+  <text class="label" x="120" y="421">Tempo Blog</text>
+  <text class="small" x="120" y="453">official announcements</text>
+
+  <rect class="source" x="90" y="530" width="260" height="110" rx="14"/>
+  <text class="label" x="120" y="576">GitHub</text>
+  <text class="small" x="120" y="608">commits + repo signal</text>
+
+  <rect class="compute" x="530" y="360" width="310" height="150" rx="16"/>
+  <text class="label" x="570" y="414">One Lambda</text>
+  <text class="small" x="570" y="448">collect, dedupe, score</text>
+  <text class="small" x="570" y="478">build evidence packet</text>
+
+  <rect class="compute" x="530" y="205" width="310" height="95" rx="16"/>
+  <text class="label" x="570" y="248">EventBridge</text>
+  <text class="small" x="570" y="277">6:00 AM scheduled trigger</text>
+
+  <rect class="store" x="980" y="205" width="280" height="120" rx="16"/>
+  <text class="label" x="1018" y="252">DynamoDB</text>
+  <text class="small" x="1018" y="284">daily lock, runs, items</text>
+
+  <rect class="ai" x="980" y="382" width="280" height="120" rx="16"/>
+  <text class="label" x="1018" y="429">Bedrock Nova</text>
+  <text class="small" x="1018" y="461">cited daily brief</text>
+
+  <rect class="output" x="980" y="560" width="280" height="120" rx="16"/>
+  <text class="label" x="1018" y="607">Private S3</text>
+  <text class="small" x="1018" y="639">HTML report artifact</text>
+
+  <path class="arrow" d="M 350 275 C 425 275 450 394 525 408"/>
+  <path class="arrow" d="M 350 430 L 520 430"/>
+  <path class="arrow" d="M 350 585 C 425 585 450 476 525 462"/>
+  <path class="arrow" d="M 685 300 L 685 352"/>
+  <path class="arrow" d="M 842 410 C 900 390 913 279 972 268"/>
+  <path class="arrow" d="M 842 440 L 970 440"/>
+  <path class="arrow-soft" d="M 980 440 C 920 460 900 500 842 480"/>
+  <path class="arrow" d="M 842 475 C 910 500 915 610 972 620"/>
+
+  <rect class="badge" x="92" y="166" width="122" height="32" rx="16"/>
+  <text class="badge-text" x="111" y="188">Sources</text>
+
+  <rect class="badge" x="532" y="166" width="138" height="32" rx="16"/>
+  <text class="badge-text" x="552" y="188">Autonomy</text>
+
+  <rect class="badge" x="982" y="166" width="185" height="32" rx="16"/>
+  <text class="badge-text" x="1002" y="188">State + Output</text>
+
+  <text class="tiny" x="70" y="830">Scope intentionally excludes X and LinkedIn from the weekend MVP; they are documented as future adapters.</text>
+</svg>

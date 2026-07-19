@@ -1,41 +1,86 @@
 # Weekend Agent Challenge: MPP Pulse, an Always-On Payments Intelligence Agent
 
-Machine payments are moving quickly across protocols, service directories, developer tooling, and payment networks. Keeping up is difficult because the useful evidence is scattered across official documentation, company blogs, and source-code repositories. A generic news summary does not solve that problem: it tends to repeat popular commentary instead of identifying concrete changes.
+Tag: #agents
 
-I built **MPP Pulse**, a small always-on intelligence agent focused on the Machine Payments Protocol (MPP) and the Tempo ecosystem. Every morning, without waiting for a button click, it checks a short list of primary sources, records what is new, asks Amazon Nova to prepare a cited briefing, and saves a readable HTML report. The result is waiting in Amazon S3 when I begin work.
+![MPP Pulse architecture](screenshots/06-architecture-diagram.png)
 
-## Vision and what the agent does
+Machine payments are becoming one of the most interesting parts of the agent economy. The idea is simple to say but hard to track: software agents, APIs, and services need a way to pay each other programmatically, often at very small amounts, without stopping for a human checkout flow. The Machine Payments Protocol (MPP) and Tempo ecosystem are early signals of that shift. But the actual evidence is scattered across service catalogs, company blogs, and GitHub repositories.
 
-MPP Pulse answers one practical question: “What changed in machine payments since the previous run, and why might it matter?”
+That scatteredness is the problem I built for. I wanted a small agent that would wake up before I start work, inspect the most important machine-payments sources, separate real movement from ambient noise, and leave a useful briefing behind. Not a button-driven chatbot. Not a generic news digest. A narrow, always-on research assistant for one fast-moving technical domain.
 
-The agent watches three deliberately narrow sources. First, it retrieves the public MPP services catalog to detect additions or changed service records. Second, it checks the official Tempo blog index for ecosystem announcements. Third, it reviews recent commits in the MPP GitHub repository for implementation movement. Each collector runs independently, so one unavailable source does not prevent the other sources from producing a report.
+The result is **MPP Pulse**, an AWS serverless agent that runs on a schedule and produces a daily machine-payments intelligence report.
 
-The workflow normalizes URLs, assigns stable content identifiers, removes duplicates, and gives each item a deterministic importance score. Official sources receive the strongest base weight, with additional points for terms associated with releases, protocol changes, SDKs, settlement, security, and integrations. Only newly observed evidence is sent to the language model.
+## Vision and What the Agent Does
 
-Amazon Nova receives a bounded JSON evidence packet. The prompt instructs the model to use only that evidence, cite claims with source labels such as `[S1]`, distinguish interpretation from fact, and avoid describing a proposal as a shipped feature. If model invocation fails, the Lambda still creates a deterministic report with ranked source links. This fallback keeps the agent useful and makes failure behavior easy to demonstrate.
+MPP Pulse answers one practical question:
 
-## How I built it
+> What changed in machine payments since the last run, and why might it matter?
 
-I optimized for the smallest complete autonomous system. The entire application runs in one Python Lambda function and uses Python’s standard library for external HTTP requests. This avoids extra infrastructure and reduces deployment size.
+The agent is triggered automatically by Amazon EventBridge Scheduler at 6:00 AM in the `America/Los_Angeles` timezone. Once triggered, it runs without human input. It collects evidence from a deliberately small set of high-signal sources: the public MPP services catalog, the Tempo blog, and recent GitHub activity related to MPP. I intentionally kept the first version focused on primary or near-primary sources because they are easier to trust and easier to cite.
 
-Idempotency was important because scheduled events may be delivered more than once. Before a normal daily run, the Lambda performs a conditional DynamoDB write for that date. If the lock already exists, a repeated invocation exits safely. Evidence records also use conditional writes, so an unchanged catalog service, blog link, or commit is not inserted twice.
+![Lambda function in AWS Console](screenshots/05-lambda-function.png)
 
-The most important scope decision was to avoid broad social-media ingestion. X and LinkedIn adapters would require more credentials, permissions, and compliance work without improving the core challenge demonstration. They remain possible future additions. Reddit is also omitted from the first deployment because the three primary sources are sufficient to demonstrate autonomous collection, reasoning, persistence, and reporting.
+Each collector produces normalized evidence items with a title, URL, source type, timestamp, content fingerprint, and short summary text. The Lambda then deduplicates the evidence, calculates deterministic importance scores, and saves operational state in DynamoDB. The score is not magic. Official protocol or company sources receive a higher base weight, and items can gain points for terms related to releases, SDKs, settlement, integrations, security, subscriptions, and protocol changes.
 
-## AWS services and architecture
+After collection and scoring, MPP Pulse builds a bounded evidence packet and sends it to Amazon Bedrock using an Amazon Nova model. The model is instructed to summarize only the provided evidence, cite claims with source labels, separate facts from interpretation, and avoid overstating GitHub activity as shipped product changes. The final result is saved as a private HTML report in Amazon S3.
 
-Amazon EventBridge Scheduler triggers the Lambda every day at 6:00 AM in the `America/Los_Angeles` timezone. The Lambda retrieves source data, writes operational state and evidence to Amazon DynamoDB, invokes Amazon Bedrock with an Amazon Nova model, and saves a private HTML report in Amazon S3. Amazon CloudWatch receives structured logs and has a basic Lambda error alarm.
+![Generated MPP Pulse report](screenshots/03-html-report.png)
 
-The project is deployed with AWS SAM. The template creates one Lambda, one DynamoDB on-demand table, one private encrypted S3 bucket, one schedule, and one alarm. The function has reserved concurrency of one, a 90-second timeout, bounded source requests, and a small Bedrock output limit. S3 reports expire after 30 days. These controls keep the demonstration inexpensive and prevent accidental continuous execution.
+That reporting loop is the whole point: I do not need to remember to run the tool. When the schedule fires, the agent collects, reasons, persists, and leaves the report ready.
 
-## What I learned
+## How I Built It
 
-The main lesson was that an agent’s autonomy is easier to trust when collection and persistence are deterministic. The model is valuable for synthesis, but it should not decide what evidence exists. Stable identifiers, conditional writes, source-specific failure handling, and a fallback report make the system easier to inspect.
+My main development decision was to keep the system small enough to finish and verify in a weekend. I used AWS SAM, one Python Lambda function, one DynamoDB table, one private S3 bucket, Amazon Bedrock, and EventBridge Scheduler. The design goal was not to build the final version of a market-intelligence platform. It was to build the smallest complete autonomous agent that satisfies the challenge and remains useful after the challenge.
 
-I also learned that a small number of authoritative sources creates a better first product than a large set of noisy integrations. MPP Pulse can expand later, but the weekend version already provides an observable loop: wake up, inspect primary sources, detect new evidence, summarize it, and leave a report behind.
+The Lambda uses Python standard-library HTTP requests so the deployment package stays simple. The code is organized around source collectors, normalization, scoring, persistence, summarization, and report rendering, but it all ships as one function. Each collector is isolated so a failure in one source does not fail the entire run. If the Tempo blog is temporarily unavailable, the catalog and GitHub collectors can still produce evidence.
 
-The repository includes the SAM template, application code, tests, architecture diagram, deployment guide, rollback instructions, and evidence checklist.
+Idempotency was the most important engineering detail. Scheduled systems can retry. Manual demos can also be run more than once. To prevent duplicate reports and duplicate evidence, the Lambda writes a daily lock record to DynamoDB with a conditional expression. Evidence items also use stable identities and content fingerprints. If the same catalog service, blog link, or commit appears again unchanged, DynamoDB rejects the duplicate insert and the run continues safely.
 
-Repository: **https://github.com/schwentker/mpp-pulse**
+I also added a deterministic fallback report. If Bedrock is unavailable, the system still writes a ranked evidence report with source links. That makes the agent easier to operate because the collection layer is useful even when the summarization layer has a temporary issue.
 
-Tag: **#agents**
+One challenge was deciding what not to build. It would be tempting to add X, LinkedIn, Reddit, Hacker News, and broad web search immediately. I documented those as future adapters, but I left them out of the weekend-critical path. Social integrations introduce authentication, rate limits, compliance questions, and a lot of noise. For this challenge, MPP services, Tempo posts, and GitHub activity are enough to prove the autonomous loop.
+
+## AWS Services Used and Architecture Overview
+
+The deployed architecture is intentionally compact:
+
+- **Amazon EventBridge Scheduler** wakes the agent every morning at 6:00 AM.
+- **AWS Lambda** runs the collector, deduplication, scoring, Bedrock call, and report rendering.
+- **Amazon DynamoDB** stores the daily lock, run records, and evidence records.
+- **Amazon Bedrock with Amazon Nova** turns the ranked evidence packet into a cited daily brief.
+- **Amazon S3** stores the private HTML report artifact.
+- **Amazon CloudWatch** stores logs and provides a basic Lambda error alarm.
+- **AWS SAM** defines and deploys the infrastructure.
+
+The flow is:
+
+1. EventBridge Scheduler invokes the Lambda.
+2. Lambda checks the DynamoDB daily lock.
+3. Lambda collects from MPP, Tempo, and GitHub.
+4. Lambda deduplicates and scores evidence.
+5. Lambda stores run and evidence records in DynamoDB.
+6. Lambda asks Bedrock/Nova for a cited summary.
+7. Lambda writes the HTML report to S3.
+8. CloudWatch captures logs and operational evidence.
+
+![Autonomous scheduled invocation evidence](screenshots/04-autonomous-invocation.png)
+
+For cost control, the table uses on-demand billing, the Lambda has reserved concurrency of one, the function timeout is 90 seconds, the Bedrock output is capped, and S3 report artifacts expire after 30 days. The daily schedule is also easy to disable if I want to pause the agent after the challenge.
+
+## What I Learned
+
+The biggest lesson was that autonomy is more convincing when the boring parts are solid. A beautiful summary is useful, but the trust comes from the schedule, idempotency lock, stable evidence identifiers, source isolation, private report storage, and observable logs. Those are the details that make the agent feel like a reliable worker rather than a demo script.
+
+I also learned that a narrow source strategy is a strength. The first version of MPP Pulse is not trying to understand the entire internet. It is watching a few places where real machine-payment development is likely to appear first. That makes the report shorter, easier to verify, and more relevant.
+
+Finally, I came away with a clearer pattern for future agents: let deterministic code collect and rank evidence, then let the model synthesize. The model should not be the fact database. It should be the analyst that reads a carefully prepared evidence packet.
+
+The next version of MPP Pulse could add Reddit, X, LinkedIn, more company blogs, release monitoring, and an API endpoint for retrieving the latest brief. Eventually, it would be fitting to expose the brief through MPP itself: an intelligence product about machine payments that other agents can pay to access.
+
+## Link to App or Repo
+
+Public GitHub repo with source code:
+
+https://github.com/schwentker/mpp-pulse
+
+The repo includes the AWS SAM template, Lambda source code, tests, deployment instructions, rollback notes, cost controls, screenshots, architecture diagram, and this article draft.
