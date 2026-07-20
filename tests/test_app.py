@@ -98,6 +98,19 @@ def test_official_blog_feeds_reject_unallowlisted_hosts(monkeypatch):
         raise AssertionError("unallowlisted feed must be rejected")
 
 
+def test_heartbeat_transition_warns_only_after_threshold():
+    assert app.heartbeat_transition(0, 0, 2) == {"consecutive_zero_runs": 1, "warning": False}
+    assert app.heartbeat_transition(1, 0, 2) == {"consecutive_zero_runs": 2, "warning": True}
+    assert app.heartbeat_transition(4, 3, 2) == {"consecutive_zero_runs": 0, "warning": False}
+
+
+def test_seed_fixture_set_is_explicitly_provisional():
+    fixture_path = Path(__file__).parent / "fixtures" / "tier1-source-fixtures.json"
+    cases = json.loads(fixture_path.read_text())["cases"]
+    by_source = {case["source"] for case in cases}
+    assert len(cases) < 20 * len(by_source)
+
+
 def test_mpp_catalog_registry_parser_preserves_inventory_behavior():
     collected_at = datetime(2026, 7, 20, 9, tzinfo=UTC)
     payload = {"services": [{"id": "example", "name": "Example", "url": "https://example.com/"}]}

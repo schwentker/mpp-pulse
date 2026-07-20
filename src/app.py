@@ -947,6 +947,42 @@ def score(item: dict[str, Any]) -> int:
     return min(base, 100)
 
 
+def heartbeat_transition(previous_zero_runs: int, item_count: int, threshold: int) -> dict[str, Any]:
+    zero_runs = previous_zero_runs + 1 if item_count == 0 else 0
+    return {"consecutive_zero_runs": zero_runs, "warning": zero_runs >= threshold}
+
+
+def record_source_heartbeats(source_counts: dict[str, int], seen_at: str) -> list[dict[str, Any]]:
+    """Persist source availability without letting heartbeat writes fail a run."""
+    warnings = []
+    for source, count in source_counts.items():
+        threshold = int(collector_definition(source)["heartbeat_periods"])
+        try:
+            current = TABLE.get_item(Key={"pk": f"HEARTBEAT#{source}"}).get("Item", {})
+            transition = heartbeat_transition(int(current.get("consecutive_zero_runs", 0)), count, threshold)
+            record = {"pk": f"HEARTBEAT#{source}", "entity_type": "SOURCE_HEARTBEAT", "source": source,
+                      "last_checked_at": seen_at, "last_item_count": count, "heartbeat_periods": threshold,
+                      **transition}
+            if count:
+                record["last_nonzero_at"] = seen_at
+            TABLE.put_item(Item=record)
+            if transition["warning"]:
+                warnings.append({"source": source, "consecutive_zero_runs": transition["consecutive_zero_runs"], "threshold": threshold})
+        except Exception as exc:
+            print(json.dumps({"level": "ERROR", "component": "heartbeat", "source": source, "error": str(exc)[:500]}))
+    return warnings
+
+
+def load_heartbeat_warnings() -> list[dict[str, Any]]:
+    try:
+        records = TABLE.scan().get("Items", [])
+        return [{"source": item["source"], "consecutive_zero_runs": item["consecutive_zero_runs"], "threshold": item["heartbeat_periods"]}
+                for item in records if item.get("entity_type") == "SOURCE_HEARTBEAT" and item.get("warning")]
+    except Exception as exc:
+        print(json.dumps({"level": "ERROR", "component": "heartbeat", "error": str(exc)[:500]}))
+        return []
+
+
 def persist_new_items(items: list[dict[str, Any]], seen_at: str) -> list[dict[str, Any]]:
     new_items = []
     for item in items:
@@ -1140,20 +1176,23 @@ def send_draft_review_email(
     summary: str,
     report_url: str,
     evidence_count: int,
+    heartbeat_warnings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     recipient = os.getenv("EMAIL_TO", "").strip()
     sender = os.getenv("EMAIL_FROM", "").strip()
     if not recipient or not sender:
         return {"status": "disabled", "reason": "EMAIL_TO or EMAIL_FROM is not configured"}
     label = period_label(window_days)
+    warning_text = "\n".join(f"- {warning['source']}: {warning['consecutive_zero_runs']} zero-result runs (threshold {warning['threshold']})" for warning in (heartbeat_warnings or []))
     subject = f"[DRAFT REVIEW] MPP Pulse {label} | Period Ending {report_date}"
-    text = (
-        f"DRAFT REVIEW: MPP Pulse {label} report ending {report_date}\n\n"
-        f"Evidence selected by operator review: {evidence_count}\n"
-        "This draft was generated from Google Sheet rows marked KEEP. It has not been sent to subscribers.\n\n"
-        f"Review the private HTML draft: {report_url}\n\n"
-        f"{summary}"
-    )
+    text = "".join((
+        f"DRAFT REVIEW: MPP Pulse {label} report ending {report_date}\n\n",
+        f"Evidence selected by operator review: {evidence_count}\n",
+        "This draft was generated from Google Sheet rows marked KEEP. It has not been sent to subscribers.\n\n",
+        f"Source heartbeat warnings:\n{warning_text}\n\n" if warning_text else "",
+        f"Review the private HTML draft: {report_url}\n\n",
+        summary,
+    ))
     html_body = (
         f"<h1>DRAFT REVIEW: MPP Pulse {html.escape(label)}</h1>"
         f"<p>Period ending {html.escape(report_date)}</p>"
@@ -1287,6 +1326,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     if mode == "collect":
         collection_since = started - timedelta(days=window_days)
         collected: list[dict[str, Any]] = []
+        source_counts: dict[str, int] = {}
         collectors = (
             ("mpp_catalog", collect_mpp),
             ("tempo_blog", lambda: collect_tempo(collection_since)),
@@ -1302,11 +1342,14 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         )
         for name, collector in collectors:
             try:
-                collected.extend(collector())
+                source_items = collector()
+                source_counts[name] = len(source_items)
+                collected.extend(source_items)
             except Exception as exc:
                 print(json.dumps({"level": "ERROR", "collector": name, "error": str(exc)[:500]}))
                 errors.append({"collector": name, "error": f"{type(exc).__name__}: {exc}"[:500]})
         new_items = persist_new_items(collected, iso(started))
+        heartbeat_warnings = record_source_heartbeats(source_counts, iso(started))
         sheet_sync = sync_evidence_to_sheet(collected, run_id, iso(started))
         if sheet_sync.get("status") == "failed":
             errors.append({"collector": "google_sheets", "error": str(sheet_sync.get("error", "sync failed"))})
@@ -1316,6 +1359,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "new_items": len(new_items),
                 "collection_since": iso(collection_since),
                 "collector_errors": errors,
+                "heartbeat_warnings": heartbeat_warnings,
                 "google_sheets": sheet_sync,
             }
         )
@@ -1362,6 +1406,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 summary,
                 report_url,
                 len(report_items),
+                load_heartbeat_warnings(),
             )
             if email.get("status") == "failed":
                 errors.append({"collector": "draft_email", "error": str(email.get("error", "email delivery failed"))})

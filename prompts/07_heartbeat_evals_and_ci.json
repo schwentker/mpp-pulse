@@ -1,6 +1,6 @@
 {
   "stage": "07_heartbeat_evals_and_ci",
-  "status": "planned",
+  "status": "partial_local",
   "recommended_model": "terra",
   "recommended_effort": "high",
   "repo": "/Users/andres/dev/mpp-pulse",
