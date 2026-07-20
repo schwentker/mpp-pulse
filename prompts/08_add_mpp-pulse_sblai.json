@@ -1,0 +1,30 @@
+{
+  "stage": "08_add_mpp-pulse_sblai",
+  "status": "planned",
+  "recommended_model": "terra",
+  "recommended_effort": "high",
+  "project": "MPP Pulse",
+  "objective": "Add a concise public landing page for MPP Pulse to the existing Sandbox Labs Hugo site at sandboxlabs.ai/mpp-pulse.",
+  "prerequisites": [
+    "Identify the local repository and deployment workflow for sandboxlabs.ai.",
+    "Confirm the Hugo content convention, existing navigation pattern, and whether a redirect can be configured.",
+    "Do not place Google Sheet IDs, AWS account details, subscriber data, or private report links on the site."
+  ],
+  "page_requirements": [
+    "Describe MPP Pulse as open-source weekly intelligence on MPP, Tempo, x402, HTTP 402, and the machine-payments ecosystem.",
+    "Explain the manual-first evidence workflow in plain language: collection, human review, then a cited weekly brief.",
+    "Link to the public GitHub repository and the AWS Builder Center article.",
+    "Include a lightweight subscription-interest call to action that routes to the existing approved Sandbox Labs contact or form path; do not introduce a payment flow.",
+    "Use the existing Sandbox Labs visual system and responsive Hugo templates.",
+    "Add basic title, description, canonical URL, and social metadata."
+  ],
+  "domain_rule": "Use sandboxlabs.ai/mpp-pulse as canonical. If mpp-pulse.xyz is later purchased, configure a permanent redirect to the canonical Sandbox Labs page and do not duplicate content.",
+  "acceptance_criteria": [
+    "The page builds successfully with the site's existing Hugo command.",
+    "It is reachable at /mpp-pulse with no broken internal links.",
+    "The page makes no unsupported product, subscription, or protocol claims.",
+    "No private operational configuration or credentials are committed.",
+    "A preview is reviewed before production deployment."
+  ],
+  "stop_after": "Identify the Hugo repository, show the proposed content file and navigation changes, and ask for approval before deployment."
+}

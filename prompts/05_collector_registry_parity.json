@@ -1,6 +1,6 @@
 {
   "stage": "05_collector_registry_parity",
-  "status": "planned",
+  "status": "checkpoint_complete",
   "recommended_model": "terra",
   "recommended_effort": "high",
   "repo": "/Users/andres/dev/mpp-pulse",

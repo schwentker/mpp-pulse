@@ -25,6 +25,11 @@ PAYMENTAUTH_GITHUB_REPO = "tempoxyz/mpp-specs"
 REDDIT_SEARCH_URL = "https://www.reddit.com/search.rss"
 HACKER_NEWS_SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date"
 X_SEARCH_URL = "https://api.x.com/2/tweets/search/recent"
+IETF_PAYMENT_DRAFT_URL = "https://datatracker.ietf.org/doc/draft-ryan-httpauth-payment/"
+OFFICIAL_BLOG_HOSTS = (
+    "tempo.xyz", "coinbase.com", "cdp.coinbase.com", "x402.org",
+    "blog.cloudflare.com", "circle.com", "paymentauth.org",
+)
 NEWS_QUERIES = (
     "MPP",
     '"machine payments protocol"',
@@ -51,6 +56,110 @@ DEFAULT_COLLECTION_WINDOW_DAYS = 1
 DEFAULT_REPORT_WINDOW_DAYS = 7
 MAX_REPORT_ITEMS = 50
 RUN_MODES = {"collect", "draft", "report"}
+COLLECTOR_REGISTRY_FIELDS = (
+    "id",
+    "source_type",
+    "collection",
+    "entity_match_rule",
+    "tier",
+    "heartbeat_periods",
+    "eligibility",
+)
+# This registry is the source-contract layer for the incremental collector
+# refactor. Only mpp_catalog is migrated in Stage 5; the remaining sources keep
+# their existing execution paths until parity tests cover the bulk migration.
+COLLECTOR_REGISTRY = {
+    "mpp_catalog": {
+        "id": "mpp_catalog",
+        "source_type": "catalog_snapshot",
+        "collection": {"method": "GET", "url_pattern": MPP_CATALOG_URL, "auth": "none"},
+        "entity_match_rule": "service id, slug, or name",
+        "tier": 1,
+        "heartbeat_periods": 1,
+        "eligibility": "inventory",
+        "implementation_status": "migrated",
+    },
+    "tempo_blog": {
+        "id": "tempo_blog",
+        "source_type": "ecosystem",
+        "collection": {"method": "GET", "url_pattern": TEMPO_BLOG_URL, "auth": "none"},
+        "entity_match_rule": "official Tempo article URL",
+        "tier": 1,
+        "heartbeat_periods": 7,
+        "eligibility": "news",
+        "implementation_status": "planned",
+    },
+    "github": {
+        "id": "github",
+        "source_type": "code",
+        "collection": {"method": "GET", "url_pattern": "https://api.github.com/repos/{repo}/commits", "auth": "optional_bearer"},
+        "entity_match_rule": "repository and commit SHA",
+        "tier": 1,
+        "heartbeat_periods": 1,
+        "eligibility": "news",
+        "implementation_status": "planned",
+    },
+    "hacker_news": {
+        "id": "hacker_news",
+        "source_type": "community",
+        "collection": {"method": "GET", "url_pattern": HACKER_NEWS_SEARCH_URL, "auth": "none"},
+        "entity_match_rule": "Hacker News object ID or canonical URL",
+        "tier": 3,
+        "heartbeat_periods": 1,
+        "eligibility": "news",
+        "implementation_status": "planned",
+    },
+    "reddit": {
+        "id": "reddit",
+        "source_type": "community",
+        "collection": {"method": "GET", "url_pattern": REDDIT_SEARCH_URL, "auth": "none"},
+        "entity_match_rule": "canonical Reddit post URL",
+        "tier": 3,
+        "heartbeat_periods": 1,
+        "eligibility": "news",
+        "implementation_status": "planned",
+    },
+    "x": {
+        "id": "x",
+        "source_type": "community",
+        "collection": {"method": "GET", "url_pattern": X_SEARCH_URL, "auth": "optional_bearer"},
+        "entity_match_rule": "X post ID",
+        "tier": 3,
+        "heartbeat_periods": 1,
+        "eligibility": "news",
+        "implementation_status": "planned",
+    },
+    "ietf_payment_auth": {
+        "id": "ietf_payment_auth", "source_type": "specification",
+        "collection": {"method": "GET", "url_pattern": IETF_PAYMENT_DRAFT_URL, "auth": "none"},
+        "entity_match_rule": "draft-ryan-httpauth-payment revision", "tier": 1,
+        "heartbeat_periods": 7, "eligibility": "news", "implementation_status": "migrated",
+    },
+    "github_release": {
+        "id": "github_release", "source_type": "release",
+        "collection": {"method": "GET", "url_pattern": "https://github.com/{repo}/releases.atom", "auth": "none"},
+        "entity_match_rule": "allowlisted repository and release tag", "tier": 1,
+        "heartbeat_periods": 7, "eligibility": "news", "implementation_status": "migrated",
+    },
+    "github_tag": {
+        "id": "github_tag", "source_type": "implementation_activity",
+        "collection": {"method": "GET", "url_pattern": "https://github.com/{repo}/tags.atom", "auth": "none"},
+        "entity_match_rule": "allowlisted repository and tag", "tier": 1,
+        "heartbeat_periods": 7, "eligibility": "news", "implementation_status": "migrated",
+    },
+    "github_merged_pr": {
+        "id": "github_merged_pr", "source_type": "implementation_activity",
+        "collection": {"method": "GET", "url_pattern": "https://api.github.com/repos/{repo}/pulls", "auth": "optional_bearer"},
+        "entity_match_rule": "allowlisted repository and merged pull request", "tier": 1,
+        "heartbeat_periods": 7, "eligibility": "news", "implementation_status": "migrated",
+    },
+    "official_blog": {
+        "id": "official_blog", "source_type": "official_blog",
+        "collection": {"method": "GET", "url_pattern": "configured RSS feeds", "auth": "none"},
+        "entity_match_rule": "allowlisted host and explicit protocol entity", "tier": 1,
+        "heartbeat_periods": 7, "eligibility": "news", "implementation_status": "migrated",
+    },
+}
 
 TABLE = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
 S3 = boto3.client("s3")
@@ -424,9 +533,18 @@ def normalize_url(url: str) -> str:
     )
 
 
-def collect_mpp() -> list[dict[str, Any]]:
-    body, _ = fetch(MPP_CATALOG_URL)
-    payload = json.loads(body)
+def collector_definition(collector_id: str) -> dict[str, Any]:
+    definition = COLLECTOR_REGISTRY.get(collector_id)
+    if definition is None:
+        raise ValueError(f"unknown collector: {collector_id}")
+    missing = [field for field in COLLECTOR_REGISTRY_FIELDS if field not in definition]
+    if missing:
+        raise ValueError(f"collector {collector_id} is missing fields: {', '.join(missing)}")
+    return definition
+
+
+def parse_mpp_catalog(payload: Any, collected_at: datetime) -> list[dict[str, Any]]:
+    """Turn the MPP catalog response into inventory records without I/O."""
     if isinstance(payload, dict):
         for key in ("services", "items", "data", "results"):
             if isinstance(payload.get(key), list):
@@ -448,15 +566,21 @@ def collect_mpp() -> list[dict[str, Any]]:
                 "external_id": service_key,
                 "title": f"MPP service: {service.get('name') or service_key}",
                 "url": normalize_url(
-                    str(service.get("url") or service.get("homepage") or MPP_CATALOG_URL)
+                    str(service.get("url") or service.get("homepage") or collector_definition("mpp_catalog")["collection"]["url_pattern"])
                 ),
-                "published_at": iso(now_utc()),
+                "published_at": iso(collected_at),
                 "summary": json.dumps(service, sort_keys=True, default=str)[:2500],
-                "category": "catalog_snapshot",
-                "news_eligible": False,
+                "category": collector_definition("mpp_catalog")["source_type"],
+                "news_eligible": collector_definition("mpp_catalog")["eligibility"] == "news",
             }
         )
     return items
+
+
+def collect_mpp() -> list[dict[str, Any]]:
+    definition = collector_definition("mpp_catalog")
+    body, _ = fetch(definition["collection"]["url_pattern"])
+    return parse_mpp_catalog(json.loads(body), now_utc())
 
 
 def extract_published_at(page: str) -> datetime | None:
@@ -543,6 +667,117 @@ def collect_github(since: datetime) -> list[dict[str, Any]]:
                     "news_eligible": True,
                 }
             )
+    return items
+
+
+def has_explicit_tier_one_evidence(text: str) -> bool:
+    value = text.lower()
+    return any(term in value for term in (
+        "mpp", "machine payments protocol", "x402", "paymentauth", "payment auth",
+        "http 402", "draft-ryan-httpauth-payment", "tempoxyz/mpp", "mpp-specs",
+    ))
+
+
+def parse_atom_entries(body: bytes) -> list[dict[str, str]]:
+    root = ElementTree.fromstring(body)
+    if root.tag.lower().endswith("rss"):
+        channel = root.find("channel")
+        return [{"id": item.findtext("guid", default=item.findtext("link", default="")),
+                 "title": item.findtext("title", default=""), "url": item.findtext("link", default=""),
+                 "published_at": item.findtext("pubDate", default=""),
+                 "summary": item.findtext("description", default="")}
+                for item in (channel.findall("item") if channel is not None else [])]
+    atom = "{http://www.w3.org/2005/Atom}"
+    entries = []
+    for entry in root.findall(f"{atom}entry"):
+        link = entry.find(f"{atom}link")
+        entries.append({
+            "id": entry.findtext(f"{atom}id", default=""),
+            "title": entry.findtext(f"{atom}title", default=""),
+            "url": str(link.get("href") if link is not None else ""),
+            "published_at": entry.findtext(f"{atom}published", default=entry.findtext(f"{atom}updated", default="")),
+            "summary": entry.findtext(f"{atom}content", default=entry.findtext(f"{atom}summary", default="")),
+        })
+    return entries
+
+
+def collect_ietf_payment_auth(since: datetime) -> list[dict[str, Any]]:
+    body, _ = fetch(IETF_PAYMENT_DRAFT_URL)
+    page = body.decode("utf-8", errors="replace")
+    revision = re.search(r"draft-ryan-httpauth-payment-(\d{2})", page, re.IGNORECASE)
+    updated = re.search(r"Last updated.*?(20\d{2}-\d{2}-\d{2})", page, re.IGNORECASE | re.DOTALL)
+    published = parse_date(f"{updated.group(1)}T00:00:00Z") if updated else None
+    if not revision or not published or published < since:
+        return []
+    return [{"source": "ietf_payment_auth", "external_id": f"draft-ryan-httpauth-payment-{revision.group(1)}",
+             "title": f"IETF: Payment HTTP Authentication Scheme draft revision {revision.group(1)}",
+             "url": IETF_PAYMENT_DRAFT_URL, "published_at": iso(published),
+             "summary": "Active individual Internet-Draft; treat as work in progress, not a ratified standard.",
+             "category": "specification", "news_eligible": True}]
+
+
+def collect_github_atom(kind: str, since: datetime) -> list[dict[str, Any]]:
+    source = "github_release" if kind == "releases" else "github_tag"
+    items = []
+    repos = dict.fromkeys((os.getenv("GITHUB_REPOSITORY", DEFAULT_GITHUB_REPO), PAYMENTAUTH_GITHUB_REPO))
+    for repo in repos:
+        body, _ = fetch(f"https://github.com/{repo}/{kind}.atom")
+        for entry in parse_atom_entries(body):
+            published = parse_date(entry["published_at"])
+            if not published or published < since:
+                continue
+            tag = entry["title"].strip() or entry["id"].rsplit("/", 1)[-1]
+            items.append({"source": source, "external_id": f"{repo}:{tag}", "title": f"{repo} {kind[:-1]}: {tag}",
+                          "url": normalize_url(entry["url"]), "published_at": iso(published),
+                          "summary": entry["summary"][:2500], "category": "release" if source == "github_release" else "implementation_activity",
+                          "news_eligible": True, "event_key": f"github:{repo}:{tag}"})
+    return items
+
+
+def collect_github_merged_prs(since: datetime) -> list[dict[str, Any]]:
+    items, token = [], os.getenv("GITHUB_TOKEN") or None
+    repos = dict.fromkeys((os.getenv("GITHUB_REPOSITORY", DEFAULT_GITHUB_REPO), PAYMENTAUTH_GITHUB_REPO))
+    for repo in repos:
+        body, _ = fetch(f"https://api.github.com/repos/{repo}/pulls?state=closed&sort=updated&direction=desc&per_page=100", token=token)
+        for pull in json.loads(body):
+            merged = parse_date(str(pull.get("merged_at") or ""))
+            text = f"{pull.get('title', '')} {pull.get('body', '')} {repo}"
+            if not merged or merged < since or not has_explicit_tier_one_evidence(text):
+                continue
+            number = str(pull.get("number") or "")
+            items.append({"source": "github_merged_pr", "external_id": f"{repo}:pr:{number}",
+                          "title": f"{repo} merged PR #{number}: {pull.get('title', '')}",
+                          "url": normalize_url(str(pull.get("html_url") or f"https://github.com/{repo}/pull/{number}")),
+                          "published_at": iso(merged), "summary": str(pull.get("body") or pull.get("title") or "")[:2500],
+                          "category": "implementation_activity", "news_eligible": True})
+    return items
+
+
+def configured_official_blog_feeds() -> list[str]:
+    raw = os.getenv("OFFICIAL_BLOG_FEEDS", "").strip()
+    if not raw:
+        return []
+    feeds = json.loads(raw)
+    if not isinstance(feeds, list) or not all(isinstance(url, str) for url in feeds):
+        raise ValueError("OFFICIAL_BLOG_FEEDS must be a JSON array of feed URLs")
+    for feed in feeds:
+        host = urllib.parse.urlsplit(feed).netloc.lower()
+        if not any(host == allowed or host.endswith(f".{allowed}") for allowed in OFFICIAL_BLOG_HOSTS):
+            raise ValueError(f"official blog feed host is not allowlisted: {host}")
+    return feeds
+
+
+def collect_official_blog_rss(since: datetime) -> list[dict[str, Any]]:
+    items = []
+    for feed in configured_official_blog_feeds():
+        body, _ = fetch(feed)
+        for entry in parse_atom_entries(body):
+            published, text = parse_date(entry["published_at"]), f"{entry['title']} {entry['summary']}"
+            if not published or published < since or not has_explicit_tier_one_evidence(text):
+                continue
+            items.append({"source": "official_blog", "external_id": entry["id"] or entry["url"], "title": entry["title"],
+                          "url": normalize_url(entry["url"]), "published_at": iso(published), "summary": entry["summary"][:2500],
+                          "category": "official_blog", "news_eligible": True})
     return items
 
 
@@ -693,6 +928,11 @@ def score(item: dict[str, Any]) -> int:
         "hacker_news": 30,
         "reddit": 25,
         "x": 25,
+        "ietf_payment_auth": 55,
+        "github_release": 55,
+        "github_tag": 40,
+        "github_merged_pr": 45,
+        "official_blog": 50,
     }.get(item["source"], 20)
     text = f"{item['title']} {item['summary']}".lower()
     for terms, points in (
@@ -1051,6 +1291,11 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             ("mpp_catalog", collect_mpp),
             ("tempo_blog", lambda: collect_tempo(collection_since)),
             ("github", lambda: collect_github(collection_since)),
+            ("ietf_payment_auth", lambda: collect_ietf_payment_auth(collection_since)),
+            ("github_release", lambda: collect_github_atom("releases", collection_since)),
+            ("github_tag", lambda: collect_github_atom("tags", collection_since)),
+            ("github_merged_pr", lambda: collect_github_merged_prs(collection_since)),
+            ("official_blog", lambda: collect_official_blog_rss(collection_since)),
             ("hacker_news", lambda: collect_hacker_news(collection_since)),
             ("reddit", lambda: collect_reddit(collection_since)),
             ("x", lambda: collect_x(collection_since)),
