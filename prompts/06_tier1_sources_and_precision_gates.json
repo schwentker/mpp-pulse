@@ -1,6 +1,6 @@
 {
   "stage": "06_tier1_sources_and_precision_gates",
-  "status": "planned",
+  "status": "checkpoint_complete",
   "recommended_model": "terra",
   "recommended_effort": "high",
   "repo": "/Users/andres/dev/mpp-pulse",

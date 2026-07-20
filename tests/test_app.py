@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 import sys
 from datetime import UTC, datetime
@@ -60,6 +61,59 @@ def test_content_id_ignores_collection_timestamp():
     }
     second = {**first, "published_at": "2026-07-18T02:00:00Z"}
     assert app.content_id(first) == app.content_id(second)
+
+
+def test_collector_registry_exposes_the_stage_five_contract():
+    expected_sources = {"mpp_catalog", "tempo_blog", "github", "hacker_news", "reddit", "x", "ietf_payment_auth", "github_release", "github_tag", "github_merged_pr", "official_blog"}
+    assert set(app.COLLECTOR_REGISTRY) == expected_sources
+    for source in expected_sources:
+        definition = app.collector_definition(source)
+        assert set(app.COLLECTOR_REGISTRY_FIELDS).issubset(definition)
+        assert set(definition["collection"]) == {"method", "url_pattern", "auth"}
+    assert app.COLLECTOR_REGISTRY["mpp_catalog"]["implementation_status"] == "migrated"
+
+
+def test_stage_six_fixtures_define_complete_accepted_evidence():
+    fixture_path = Path(__file__).parent / "fixtures" / "tier1-source-fixtures.json"
+    fixtures = json.loads(fixture_path.read_text())
+    accepted = [case for case in fixtures["cases"] if case["kind"] == "accept"]
+
+    assert accepted
+    for case in accepted:
+        assert all(case[key] for key in ("canonical_url", "published_at", "excerpt", "entity_match", "classification", "confidence"))
+
+
+def test_stage_six_precision_gate_rejects_generic_402_but_accepts_protocol_terms():
+    assert not app.has_explicit_tier_one_evidence("Our gateway can return 402 for billing")
+    assert app.has_explicit_tier_one_evidence("PaymentAuth draft adds HTTP 402 semantics")
+
+
+def test_official_blog_feeds_reject_unallowlisted_hosts(monkeypatch):
+    monkeypatch.setenv("OFFICIAL_BLOG_FEEDS", '["https://example.com/feed.xml"]')
+    try:
+        app.configured_official_blog_feeds()
+    except ValueError as exc:
+        assert "not allowlisted" in str(exc)
+    else:
+        raise AssertionError("unallowlisted feed must be rejected")
+
+
+def test_mpp_catalog_registry_parser_preserves_inventory_behavior():
+    collected_at = datetime(2026, 7, 20, 9, tzinfo=UTC)
+    payload = {"services": [{"id": "example", "name": "Example", "url": "https://example.com/"}]}
+
+    items = app.parse_mpp_catalog(payload, collected_at)
+
+    assert items == [{
+        "source": "mpp_catalog",
+        "external_id": "example",
+        "title": "MPP service: Example",
+        "url": "https://example.com/",
+        "published_at": "2026-07-20T09:00:00Z",
+        "summary": '{"id": "example", "name": "Example", "url": "https://example.com/"}',
+        "category": "catalog_snapshot",
+        "news_eligible": False,
+    }]
 
 
 def test_markdown_report_renders_headings_bold_and_links():
@@ -289,6 +343,10 @@ def test_collect_mode_persists_evidence_without_generating_a_report(monkeypatch)
     monkeypatch.setattr(app, "collect_mpp", lambda: [])
     monkeypatch.setattr(app, "collect_tempo", lambda since: [])
     monkeypatch.setattr(app, "collect_github", lambda since: [])
+    monkeypatch.setattr(app, "collect_ietf_payment_auth", lambda since: [])
+    monkeypatch.setattr(app, "collect_github_atom", lambda kind, since: [])
+    monkeypatch.setattr(app, "collect_github_merged_prs", lambda since: [])
+    monkeypatch.setattr(app, "collect_official_blog_rss", lambda since: [])
     monkeypatch.setattr(app, "collect_hacker_news", lambda since: [])
     monkeypatch.setattr(app, "collect_reddit", lambda since: [])
     monkeypatch.setattr(app, "collect_x", lambda since: [])

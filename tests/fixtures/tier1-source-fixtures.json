@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "ietf-payment-draft-revision",
+      "source": "ietf_payment_auth",
+      "kind": "accept",
+      "canonical_url": "https://datatracker.ietf.org/doc/draft-ryan-httpauth-payment/",
+      "published_at": "2026-03-17T00:00:00Z",
+      "excerpt": "draft-ryan-httpauth-payment-01 The Payment HTTP Authentication Scheme",
+      "entity_match": "draft-ryan-httpauth-payment",
+      "classification": "implementation_activity",
+      "confidence": "high"
+    },
+    {
+      "id": "ietf-bare-402-reference",
+      "source": "ietf_payment_auth",
+      "kind": "reject",
+      "canonical_url": "https://datatracker.ietf.org/doc/draft-example/",
+      "published_at": "2026-03-17T00:00:00Z",
+      "excerpt": "This draft can return HTTP 402 when a billing relationship is required.",
+      "reason": "bare_402_without_named_payment_entity"
+    },
+    {
+      "id": "github-merged-mpp-pr",
+      "source": "github_merged_pr",
+      "kind": "accept",
+      "canonical_url": "https://github.com/tempoxyz/mpp/pull/999",
+      "published_at": "2026-07-19T08:00:00Z",
+      "excerpt": "Merge pull request: add Payment challenge parser",
+      "entity_match": "tempoxyz/mpp",
+      "classification": "implementation_activity",
+      "confidence": "high"
+    },
+    {
+      "id": "github-closed-not-merged",
+      "source": "github_merged_pr",
+      "kind": "reject",
+      "canonical_url": "https://github.com/tempoxyz/mpp/pull/998",
+      "published_at": "2026-07-19T08:00:00Z",
+      "excerpt": "Closed pull request: add Payment challenge parser",
+      "reason": "merged_at_missing"
+    },
+    {
+      "id": "official-blog-explicit-x402",
+      "source": "official_blog",
+      "kind": "accept",
+      "canonical_url": "https://example.invalid/blog/x402-launch",
+      "published_at": "2026-07-19T08:00:00Z",
+      "excerpt": "We launched x402 support for paid API requests.",
+      "entity_match": "x402",
+      "classification": "news",
+      "confidence": "high"
+    },
+    {
+      "id": "official-blog-generic-ai-payments",
+      "source": "official_blog",
+      "kind": "reject",
+      "canonical_url": "https://example.invalid/blog/ai-payments",
+      "published_at": "2026-07-19T08:00:00Z",
+      "excerpt": "Our AI platform now supports more payment options.",
+      "reason": "no_specific_protocol_entity_match"
+    }
+  ]
+}
