@@ -1,0 +1,15 @@
+{
+  "stage": "01_pipeline_map",
+  "status": "complete",
+  "recommended_model": "terra",
+  "recommended_effort": "high",
+  "repo": "/Users/andres/dev/mpp-pulse",
+  "role": "Senior engineer mapping an existing serverless Python codebase",
+  "instruction": "Read broadly before editing. Map collection, normalization, relevance filtering, scoring, persistence, summarization, rendering and delivery. Report how sources are defined, how a new source is added, where collection and report windows are set and how locks work.",
+  "constraints": [
+    "Read-only stage",
+    "Do not edit code, deploy AWS resources or send email",
+    "Preserve current user changes"
+  ],
+  "stop_after": "Return the pipeline map, risks and recommended Stage 2 scope, then stop."
+}

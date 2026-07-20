@@ -1,0 +1,58 @@
+{
+  "stage": "03_google_sheet_review_queue",
+  "status": "complete_locally",
+  "recommended_model": "terra",
+  "recommended_effort": "high",
+  "repo": "/Users/andres/dev/mpp-pulse",
+  "instruction": "Add a private Google Sheet review queue for persisted evidence. Do not add new sources, Bedrock drafting, subscriber delivery or report scheduling in this stage.",
+  "read_first": [
+    "docs/manual-first-implementation-plan.md",
+    "src/app.py",
+    "template.yaml",
+    "tests/test_app.py"
+  ],
+  "workbook": {
+    "tabs": ["evidence_inbox", "curation", "subscribers", "issue_queue", "run_log"],
+    "rule": "Use one private workbook with protected subscriber data. Do not mix subscriber rows into the evidence table."
+  },
+  "evidence_fields": [
+    "item_id",
+    "run_id",
+    "collected_at",
+    "published_at",
+    "source",
+    "source_type",
+    "title",
+    "canonical_url",
+    "supporting_excerpt",
+    "entity_match",
+    "confidence",
+    "importance_score",
+    "eligibility",
+    "review_status",
+    "operator_note"
+  ],
+  "technical_requirements": [
+    "Use a Google service account or equivalent server-to-server credential",
+    "Store credentials in SSM Parameter Store SecureString, never in code",
+    "Share only the private workbook with the service account",
+    "Upsert by stable item_id so repeat runs do not create duplicate rows",
+    "Treat Sheets failure as a recorded partial failure after DynamoDB/S3 persistence succeeds",
+    "Make the integration feature-disabled by default until configured",
+    "Keep DynamoDB and S3 as the source of truth"
+  ],
+  "security_requirements": [
+    "Do not create a public sheet",
+    "Do not log service-account JSON, access tokens, sheet IDs or subscriber data",
+    "Do not create or modify the subscribers tab in this stage",
+    "Do not use a personal OAuth refresh token in Lambda"
+  ],
+  "tests": [
+    "row mapping preserves item_id, source, URL, dates and review defaults",
+    "upsert is idempotent for the same item_id",
+    "Sheets failure does not discard persisted evidence",
+    "missing configuration disables the integration safely",
+    "credentials are read from the configured secret source without logging values"
+  ],
+  "stop_after": "Show the sheet schema and credential flow before bulk implementation if either is ambiguous. After implementation, return files, tests, deployment parameters and risks, then stop."
+}

@@ -1,0 +1,30 @@
+{
+  "stage": "06_tier1_sources_and_precision_gates",
+  "status": "planned",
+  "recommended_model": "terra",
+  "recommended_effort": "high",
+  "repo": "/Users/andres/dev/mpp-pulse",
+  "instruction": "Add only free primary-source collectors and enforce precision-bound eligibility as code.",
+  "sources": [
+    "IETF Datatracker payment draft revision changes",
+    "GitHub releases.atom and tags.atom for MPP, MPP specs and PaymentAuth repositories",
+    "Merged GitHub pull requests in the configured reporting window",
+    "Official-blog RSS allowlist for Tempo, Coinbase x402/CDP, Cloudflare, Circle and paymentauth.org"
+  ],
+  "reject": [
+    "GitHub Actions events",
+    "package download counts",
+    "on-chain or explorer scraping",
+    "search-engine automation",
+    "Discord scraping",
+    "paid APIs"
+  ],
+  "eligibility": [
+    "Require specific MPP, x402, PaymentAuth, HTTP 402, draft or named-repository evidence",
+    "Reject bare 402 and generic agent-payment matches",
+    "Require canonical URL, publication date, excerpt, entity match and confidence",
+    "Keep inventory, implementation activity, news and unverified community separate",
+    "Deduplicate before scoring and do not triple-count cross-source duplicates"
+  ],
+  "stop_after": "Return source-specific fixtures, precision risks and proposed acceptance thresholds before implementing all sources."
+}

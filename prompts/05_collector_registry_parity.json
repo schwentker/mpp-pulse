@@ -1,0 +1,27 @@
+{
+  "stage": "05_collector_registry_parity",
+  "status": "planned",
+  "recommended_model": "terra",
+  "recommended_effort": "high",
+  "repo": "/Users/andres/dev/mpp-pulse",
+  "instruction": "Refactor source dispatch into a declarative registry without changing existing source behavior. Prove parity before adding any new source.",
+  "registry_fields": [
+    "id",
+    "source_type",
+    "collection.method",
+    "collection.url_pattern",
+    "collection.auth",
+    "entity_match_rule",
+    "tier",
+    "heartbeat_periods",
+    "eligibility"
+  ],
+  "sources_to_migrate": ["mpp_catalog", "tempo_blog", "github", "hacker_news", "reddit", "x"],
+  "constraints": [
+    "No source-specific branching in the handler",
+    "Parsers are pure functions where practical",
+    "Keep collectors fail-independent",
+    "Do not add IETF, releases, tags or blog allowlists yet"
+  ],
+  "stop_after": "Show registry schema, one migrated source and parity test plan before bulk migration."
+}

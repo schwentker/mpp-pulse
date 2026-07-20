@@ -3,13 +3,43 @@ Transform: AWS::Serverless-2016-10-31
 Description: Minimal always-on MPP and Tempo payments intelligence agent
 
 Parameters:
-  ScheduleState:
+  CollectScheduleState:
+    Type: String
+    Default: DISABLED
+    AllowedValues: [ENABLED, DISABLED]
+  ReportScheduleState:
     Type: String
     Default: DISABLED
     AllowedValues: [ENABLED, DISABLED]
   ScheduleTimezone:
     Type: String
     Default: America/Los_Angeles
+  CollectScheduleExpression:
+    Type: String
+    Default: cron(0 7 * * ? *)
+  ReportScheduleExpression:
+    Type: String
+    Default: cron(30 11 ? * SUN *)
+  CollectionWindowDays:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 31
+  ReportWindowDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 31
+  GoogleSheetsEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  GoogleSheetId:
+    Type: String
+    Default: ""
+  GoogleCredentialsParameterName:
+    Type: String
+    Default: mpp-pulse/google-service-account
   BedrockModelId:
     Type: String
     Default: us.amazon.nova-2-lite-v1:0
@@ -76,6 +106,11 @@ Resources:
           GITHUB_REPOSITORY: !Ref GitHubRepository
           EMAIL_TO: !Ref EmailTo
           EMAIL_FROM: !Ref EmailFrom
+          COLLECTION_WINDOW_DAYS: !Ref CollectionWindowDays
+          REPORT_WINDOW_DAYS: !Ref ReportWindowDays
+          GOOGLE_SHEETS_ENABLED: !Ref GoogleSheetsEnabled
+          GOOGLE_SHEET_ID: !Ref GoogleSheetId
+          GOOGLE_CREDENTIALS_PARAMETER: !Ref GoogleCredentialsParameterName
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref PulseTable
@@ -88,21 +123,42 @@ Resources:
             - Effect: Allow
               Action: ses:SendEmail
               Resource: "*"
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${GoogleCredentialsParameterName}"
       Events:
-        WeeklySchedule:
+        CollectSchedule:
           Type: ScheduleV2
           Properties:
-            Name: !Sub "${AWS::StackName}-weekly"
-            Description: Autonomous weekly MPP Pulse run every Sunday at 11:30 AM
-            ScheduleExpression: cron(30 11 ? * SUN *)
+            Name: !Sub "${AWS::StackName}-collect"
+            Description: Collect machine-payments evidence without generating a report
+            ScheduleExpression: !Ref CollectScheduleExpression
             ScheduleExpressionTimezone: !Ref ScheduleTimezone
-            State: !Ref ScheduleState
+            State: !Ref CollectScheduleState
             FlexibleTimeWindow:
               Mode: "OFF"
             RetryPolicy:
               MaximumEventAgeInSeconds: 3600
               MaximumRetryAttempts: 1
-            Input: '{"trigger":"schedule","window_days":7}'
+            Input: !Sub
+              - '{"trigger":"collect_schedule","mode":"collect","window_days":${WindowDays}}'
+              - WindowDays: !Ref CollectionWindowDays
+        ReportSchedule:
+          Type: ScheduleV2
+          Properties:
+            Name: !Sub "${AWS::StackName}-report"
+            Description: Generate a machine-payments report from persisted evidence
+            ScheduleExpression: !Ref ReportScheduleExpression
+            ScheduleExpressionTimezone: !Ref ScheduleTimezone
+            State: !Ref ReportScheduleState
+            FlexibleTimeWindow:
+              Mode: "OFF"
+            RetryPolicy:
+              MaximumEventAgeInSeconds: 3600
+              MaximumRetryAttempts: 1
+            Input: !Sub
+              - '{"trigger":"report_schedule","mode":"report","window_days":${WindowDays}}'
+              - WindowDays: !Ref ReportWindowDays
 
   FunctionErrorAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -127,5 +183,7 @@ Outputs:
     Value: !Ref PulseTable
   BucketName:
     Value: !Ref ReportBucket
-  ScheduleName:
-    Value: !Sub "${AWS::StackName}-weekly"
+  CollectScheduleName:
+    Value: !Sub "${AWS::StackName}-collect"
+  ReportScheduleName:
+    Value: !Sub "${AWS::StackName}-report"

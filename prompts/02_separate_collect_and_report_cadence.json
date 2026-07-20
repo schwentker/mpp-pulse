@@ -1,0 +1,25 @@
+{
+  "stage": "02_separate_collect_and_report_cadence",
+  "status": "complete_locally",
+  "recommended_model": "terra",
+  "recommended_effort": "high",
+  "repo": "/Users/andres/dev/mpp-pulse",
+  "instruction": "Separate daily collection from weekly report generation. Collection persists evidence without Bedrock, report rendering or subscriber delivery. Report mode reads persisted evidence in a calendar window. Use a rolling collection lookback and independent SAM parameters for collection and reporting.",
+  "required_parameters": [
+    "CollectScheduleState",
+    "ReportScheduleState",
+    "CollectScheduleExpression",
+    "ReportScheduleExpression",
+    "CollectionWindowDays",
+    "ReportWindowDays"
+  ],
+  "required_invariants": [
+    "Collectors fail independently",
+    "DynamoDB conditional evidence writes remain idempotent",
+    "Locks include mode, window end and window length",
+    "Report schedule is disabled by default",
+    "No deployment occurs in this stage"
+  ],
+  "validation": ["pytest", "sam validate --lint", "sam build"],
+  "stop_after": "Return changed files, tests, deployment implications and open risks, then stop."
+}

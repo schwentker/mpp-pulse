@@ -1,0 +1,6 @@
+{
+  "trigger": "manual_collect",
+  "mode": "collect",
+  "force": true,
+  "window_days": 1
+}

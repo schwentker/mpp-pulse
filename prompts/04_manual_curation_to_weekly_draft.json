@@ -1,0 +1,24 @@
+{
+  "stage": "04_manual_curation_to_weekly_draft",
+  "status": "complete_locally",
+  "recommended_model": "terra",
+  "recommended_effort": "high",
+  "repo": "/Users/andres/dev/mpp-pulse",
+  "instruction": "Generate an operator-only weekly draft from Google Sheet evidence marked KEEP. Do not send to subscribers and do not enable the report schedule.",
+  "rules": [
+    "Read only KEEP rows in the seven-day report window",
+    "Exclude CUT, WATCH and PENDING rows",
+    "Preserve source URLs and item IDs in the evidence packet",
+    "Send draft review only to the operator through SES or save private HTML to S3",
+    "Fail closed when there are no approved KEEP rows",
+    "Record the curation snapshot used for the draft"
+  ],
+  "acceptance_criteria": [
+    "A row changed from CUT to KEEP appears in the next draft",
+    "A row changed from KEEP to CUT does not appear",
+    "The draft contains a source ledger",
+    "No subscriber email is sent",
+    "ReportScheduleState remains DISABLED"
+  ],
+  "stop_after": "Return draft-flow behavior, tests and deployment implications, then stop."
+}

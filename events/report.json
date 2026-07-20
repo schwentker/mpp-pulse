@@ -1,0 +1,6 @@
+{
+  "trigger": "manual_report",
+  "mode": "report",
+  "force": true,
+  "window_days": 7
+}

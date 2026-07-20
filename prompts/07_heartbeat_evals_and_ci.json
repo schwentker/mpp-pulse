@@ -1,0 +1,24 @@
+{
+  "stage": "07_heartbeat_evals_and_ci",
+  "status": "planned",
+  "recommended_model": "terra",
+  "recommended_effort": "high",
+  "repo": "/Users/andres/dev/mpp-pulse",
+  "instruction": "Make source omissions visible and make manual review measurable. Add heartbeat tracking, golden fixtures and CI checks without introducing paid services.",
+  "requirements": [
+    "Track each source's last nonzero result in DynamoDB",
+    "Flag a source after its configured number of consecutive zero-item runs",
+    "Include heartbeat warnings in operator draft review output",
+    "Create 20 to 30 hand-labeled records per new source",
+    "Test matcher and classifier behavior offline without live network calls",
+    "Capture operator KEEP and CUT decisions as evaluation labels",
+    "Fail CI when precision drops below the established baseline"
+  ],
+  "constraints": [
+    "No subscriber delivery",
+    "No paid APIs",
+    "No silent source omission",
+    "Preserve PARTIAL_SUCCESS behavior"
+  ],
+  "stop_after": "Return evaluation results, baseline comparison and remaining false-positive risks, then stop."
+}
