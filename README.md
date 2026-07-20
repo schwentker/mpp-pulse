@@ -5,12 +5,12 @@
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](src/app.py)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-MPP Pulse is an always-on AWS intelligence agent for the Machine Payments
-Protocol (MPP) and Tempo ecosystem. It collects evidence on an independent
+MPP Pulse is open-source weekly intelligence on MPP, Tempo, x402, HTTP 402,
+and the machine-payments ecosystem. It collects evidence on an independent
 schedule, then generates a cited report from the persisted reporting window.
 
-MPP Pulse is the open-source engine behind a weekly machine-payments
-intelligence brief. To receive the report, subscriptions are opening soon.
+It is the open-source engine behind a weekly machine-payments intelligence
+brief. To receive the report, subscriptions are opening soon.
 
 The project was built for the AWS Builder Center Weekend Agent Challenge with a
 deliberately small architecture: two independent schedules, one Lambda, DynamoDB, S3, and
