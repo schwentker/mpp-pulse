@@ -5,33 +5,47 @@
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](src/app.py)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-MPP Pulse is an always-on AWS intelligence agent for the Machine Payments
-Protocol (MPP) and Tempo ecosystem. It wakes up every Sunday, searches the
-preceding seven days, asks Amazon Nova to prepare a cited briefing, emails it,
-and saves a private HTML report for review.
+MPP Pulse is open-source weekly intelligence on MPP, Tempo, x402, HTTP 402,
+and the machine-payments ecosystem. It collects evidence on an independent
+schedule, then generates a cited report from the persisted reporting window.
 
-MPP Pulse is the open-source engine behind a weekly machine-payments
-intelligence brief. To receive the report, subscriptions are opening soon.
+It is the open-source engine behind a weekly machine-payments intelligence
+brief. To receive the report, subscriptions are opening soon.
 
 The project was built for the AWS Builder Center Weekend Agent Challenge with a
-deliberately small architecture: one schedule, one Lambda, DynamoDB, S3, and
+deliberately small architecture: two independent schedules, one Lambda, DynamoDB, S3, and
 Amazon Bedrock.
 
 ## What it does
 
-Every Sunday at 11:30 AM Pacific, MPP Pulse:
+The default configuration separates collection from reporting:
 
-1. Fetches the public MPP services catalog.
-2. Checks the official Tempo blog index.
-3. Retrieves recent commits from the MPP and PaymentAuth specification repositories.
-4. Searches Hacker News, Reddit, and optionally X for relevant seven-day signals.
-5. Normalizes URLs and creates stable content identities.
-6. Uses conditional DynamoDB writes to suppress duplicate evidence storage.
-7. Applies deterministic importance scoring and ranks up to 50 report items.
-8. Sends the ranked weekly evidence packet to Amazon Nova 2 Lite.
-9. Produces and emails a cited report with an exact source ledger.
-10. Saves the finished report as private, encrypted HTML in Amazon S3.
-11. Writes structured run results to CloudWatch and DynamoDB.
+1. A daily collection run fetches and persists evidence without calling Bedrock
+   or sending email.
+2. A weekly report run reads persisted evidence from the configured seven-day
+   window, asks Amazon Nova to prepare a cited briefing, emails it, and saves a
+   private HTML report for review.
+3. A manual draft run reads only Google Sheet rows marked `KEEP`, writes a
+   private draft and curation snapshot, then sends review email only to the
+   configured operator address.
+
+Collection runs:
+
+1. Fetch the public MPP services catalog.
+2. Check the official Tempo blog index.
+3. Retrieve recent commits from the MPP and PaymentAuth specification repositories.
+4. Search Hacker News, Reddit, and optionally X for relevant signals.
+5. Normalize URLs and create stable content identities.
+6. Use conditional DynamoDB writes to suppress duplicate evidence storage.
+
+Report runs:
+
+1. Read eligible persisted evidence in the reporting window.
+2. Apply deterministic importance scoring and rank up to 50 report items.
+3. Send the ranked evidence packet to Amazon Nova 2 Lite.
+4. Produce and email a cited report with an exact source ledger.
+5. Save the finished report as private, encrypted HTML in Amazon S3.
+6. Write structured run results to CloudWatch and DynamoDB.
 
 Collectors fail independently. If one source is unavailable, the remaining
 sources can still produce a `PARTIAL_SUCCESS` report. If Bedrock is unavailable,
@@ -44,8 +58,8 @@ The reference deployment has been tested in `us-west-2`.
 | Check | Result |
 |---|---|
 | CloudFormation stack | `UPDATE_COMPLETE` |
-| Weekly schedule | Enabled |
-| Schedule | `cron(30 11 ? * SUN *)` |
+| Collection schedule | Daily, configurable |
+| Report schedule | Weekly, configurable and disabled by default |
 | Timezone | `America/Los_Angeles` |
 | Model | `us.amazon.nova-2-lite-v1:0` |
 | Autonomous evidence run | `SUCCEEDED` |
@@ -55,7 +69,9 @@ The reference deployment has been tested in `us-west-2`.
 | Unit tests | 11 passing |
 | SAM validation and build | Passing |
 
-The production weekly schedule remains enabled.
+The earlier reference deployment used one weekly schedule. The current template
+separates daily collection from report generation and keeps both schedules
+disabled by default until explicitly enabled during deployment.
 
 ## Architecture
 
@@ -64,7 +80,7 @@ The production weekly schedule remains enabled.
 AWS resources are defined in [template.yaml](template.yaml):
 
 - One ARM64 AWS Lambda function
-- One EventBridge Scheduler schedule
+- Two EventBridge Scheduler schedules
 - One DynamoDB on-demand table
 - One private encrypted S3 bucket
 - One CloudWatch Lambda error alarm
@@ -130,7 +146,8 @@ DynamoDB uses a single string partition key:
 
 | Record | Key pattern | Purpose |
 |---|---|---|
-| Weekly lock | `LOCK#WEEK#YYYY-MM-DD` | Prevent repeated weekly processing |
+| Collection lock | `LOCK#COLLECT#END#YYYY-MM-DD#WINDOW#N` | Prevent repeated collection for a period |
+| Report lock | `LOCK#REPORT#END#YYYY-MM-DD#WINDOW#N` | Prevent repeated report generation for a period |
 | Evidence | `ITEM#SHA256` | Store a stable version of observed content |
 | Run | `RUN#UUID` | Record status, counts, errors, and report location |
 
@@ -147,8 +164,11 @@ Manual demonstration events can set:
 }
 ```
 
-`force` bypasses the weekly lock. `window_days` controls the reporting window;
-the production schedule and manual example both use seven days.
+`force` bypasses the run lock. `mode` selects either `collect` or `report`.
+`window_days` controls the relevant collection or reporting period. Collection
+uses a rolling lookback from invocation time. Reports use a calendar period
+ending on `window_end` or `report_date`. Collection and report windows have
+independent SAM parameters.
 
 S3 reports use:
 
@@ -230,8 +250,8 @@ template.yaml is a valid SAM Template
 
 ## Deploy safely
 
-The template defaults the schedule to `DISABLED`. Deploy and verify manually
-before allowing autonomous runs.
+The template defaults both schedules to `DISABLED`. Deploy and verify manually
+before allowing autonomous collection or report generation.
 
 ```bash
 sam build
@@ -242,7 +262,12 @@ sam deploy \
   --capabilities CAPABILITY_IAM \
   --resolve-s3 \
   --parameter-overrides \
-      ScheduleState=DISABLED \
+      CollectScheduleState=DISABLED \
+      ReportScheduleState=DISABLED \
+      CollectScheduleExpression='cron(0 7 * * ? *)' \
+      ReportScheduleExpression='cron(30 11 ? * SUN *)' \
+      CollectionWindowDays=1 \
+      ReportWindowDays=7 \
       BedrockModelId=us.amazon.nova-2-lite-v1:0 \
       ScheduleTimezone=America/Los_Angeles \
       GitHubRepository=tempoxyz/mpp
@@ -266,7 +291,7 @@ Replace `FUNCTION_NAME` with the CloudFormation output:
 aws lambda invoke \
   --function-name FUNCTION_NAME \
   --region us-west-2 \
-  --payload file://events/manual.json \
+  --payload file://events/collect.json \
   response.json
 ```
 
@@ -275,7 +300,27 @@ Confirm that the response contains:
 ```json
 {
   "status": "SUCCEEDED",
-  "collector_errors": [],
+  "mode": "collect",
+  "collector_errors": []
+}
+```
+
+Then invoke the report event after collection:
+
+```bash
+aws lambda invoke \
+  --function-name FUNCTION_NAME \
+  --region us-west-2 \
+  --payload file://events/manual.json \
+  response.json
+```
+
+Confirm that response includes:
+
+```json
+{
+  "status": "SUCCEEDED",
+  "mode": "report",
   "report_key": "reports/YYYY-MM-DD/RUN_ID.html"
 }
 ```
@@ -287,7 +332,7 @@ Then verify:
 3. S3 contains the reported HTML object.
 4. A second forced run reports zero newly inserted unchanged items.
 
-## Enable the weekly schedule
+## Configure collection and report schedules
 
 ```bash
 sam deploy \
@@ -297,7 +342,12 @@ sam deploy \
   --resolve-s3 \
   --no-confirm-changeset \
   --parameter-overrides \
-      ScheduleState=ENABLED \
+      CollectScheduleState=ENABLED \
+      ReportScheduleState=DISABLED \
+      CollectScheduleExpression='cron(0 7 * * ? *)' \
+      ReportScheduleExpression='cron(30 11 ? * SUN *)' \
+      CollectionWindowDays=1 \
+      ReportWindowDays=7 \
       BedrockModelId=us.amazon.nova-2-lite-v1:0 \
       ScheduleTimezone=America/Los_Angeles \
       GitHubRepository=tempoxyz/mpp
@@ -307,7 +357,7 @@ Verify the result:
 
 ```bash
 aws scheduler get-schedule \
-  --name mpp-pulse-dev-weekly \
+  --name mpp-pulse-dev-collect \
   --region us-west-2 \
   --query '{State:State,Expression:ScheduleExpression,Timezone:ScheduleExpressionTimezone}'
 ```
@@ -318,13 +368,110 @@ CloudFormation parameters:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `ScheduleState` | `DISABLED` | Safe initial schedule state |
+| `CollectScheduleState` | `DISABLED` | Safe initial collection schedule state |
+| `ReportScheduleState` | `DISABLED` | Report scheduler state. Keep disabled until the manual review gate is implemented. |
 | `ScheduleTimezone` | `America/Los_Angeles` | EventBridge evaluation timezone |
+| `CollectScheduleExpression` | `cron(0 7 * * ? *)` | Daily collection cadence |
+| `ReportScheduleExpression` | `cron(30 11 ? * SUN *)` | Weekly report cadence |
+| `CollectionWindowDays` | `1` | Rolling collection lookback window |
+| `ReportWindowDays` | `7` | Report evidence window |
+| `GoogleSheetsEnabled` | `false` | Enable the private evidence review queue |
+| `GoogleSheetId` | empty | Private Google Sheets spreadsheet ID |
+| `GoogleCredentialsParameterName` | `mpp-pulse/google-service-account` | SSM SecureString containing service-account JSON |
 | `BedrockModelId` | `us.amazon.nova-2-lite-v1:0` | Bedrock inference profile |
 | `GitHubRepository` | `tempoxyz/mpp` | Repository watched for recent commits |
 
 Lambda environment variables are populated from these parameters and generated
 resource references.
+
+## Google Sheet review queue
+
+Stage 3 adds an optional private review queue. It writes only to the
+`evidence_inbox` tab. Create one private workbook with these tabs before enabling
+the integration:
+
+```text
+evidence_inbox
+curation
+subscribers
+issue_queue
+run_log
+```
+
+The Lambda never writes to `subscribers` in this stage. Protect that tab because
+it will eventually contain personal email addresses from the Google Form.
+
+The `evidence_inbox` header row is:
+
+```text
+item_id, run_id, collected_at, published_at, source, source_type,
+title, canonical_url, supporting_excerpt, entity_match, confidence,
+importance_score, eligibility, review_status, operator_note
+```
+
+Share the workbook only with the operator and the Google service-account email.
+Store the downloaded service-account JSON as an SSM Parameter Store
+`SecureString`; never commit it or print it in logs:
+
+```bash
+aws ssm put-parameter \
+  --name mpp-pulse/google-service-account \
+  --type SecureString \
+  --value "$(<service-account.json)" \
+  --overwrite \
+  --region us-west-2
+```
+
+Enable the queue only after the workbook and parameter exist:
+
+```bash
+sam deploy \
+  --stack-name mpp-pulse-dev \
+  --region us-west-2 \
+  --capabilities CAPABILITY_IAM \
+  --resolve-s3 \
+  --parameter-overrides \
+      GoogleSheetsEnabled=true \
+      GoogleSheetId=YOUR_PRIVATE_SHEET_ID \
+      GoogleCredentialsParameterName=mpp-pulse/google-service-account \
+      CollectScheduleState=ENABLED \
+      ReportScheduleState=DISABLED
+```
+
+When disabled or incompletely configured, collection continues without a Sheet
+write. When configured, repeat collection upserts by stable `item_id` and
+preserves existing `review_status` and `operator_note` values.
+
+## Manual draft review
+
+The private workbook is the human approval gate. Mark a relevant
+`evidence_inbox` row as `KEEP` after review. The manual draft event reads only
+`KEEP` rows whose `eligibility` is `news` and whose publication date falls in
+the configured reporting window. It ignores `PENDING`, `CUT`, `WATCH` and
+inventory rows.
+
+Run the draft manually after the service account and SSM parameter are
+configured:
+
+```bash
+aws lambda invoke \
+  --function-name FUNCTION_NAME \
+  --region us-west-2 \
+  --payload file://events/manual.json \
+  response.json
+```
+
+On success, the function writes:
+
+```text
+drafts/YYYY-MM-DD/RUN_ID.html
+drafts/YYYY-MM-DD/RUN_ID.json
+```
+
+The JSON file records the exact approved evidence used in the draft. The email
+subject begins `[DRAFT REVIEW]` and goes only to `EMAIL_TO`. It never sends to
+subscribers. If there are no approved rows, the run returns
+`NO_APPROVED_EVIDENCE` without writing a draft or sending email.
 
 ## Test plan
 
@@ -336,13 +483,15 @@ resource references.
 5. Confirm run and evidence records in DynamoDB.
 6. Confirm a rendered HTML object in S3.
 7. Review CloudWatch for collector or Bedrock errors.
-8. Repeat the run and confirm duplicate evidence is not inserted again.
-9. Enable the production schedule.
-10. Capture a genuine EventBridge-triggered invocation.
+8. Repeat the collection run and confirm duplicate evidence is not inserted again.
+9. Invoke a report run and confirm it only reads persisted evidence.
+10. Enable the collection schedule. Keep the report schedule disabled until the review gate exists.
+11. Capture a genuine EventBridge-triggered collection invocation.
 
 ## Cost and failure controls
 
-- One scheduled invocation per week
+- One daily collection invocation by default
+- Report scheduler disabled by default
 - Reserved Lambda concurrency of one
 - 90-second Lambda timeout
 - Six bounded source collectors
@@ -369,7 +518,9 @@ sam deploy \
   --capabilities CAPABILITY_IAM \
   --resolve-s3 \
   --no-confirm-changeset \
-  --parameter-overrides ScheduleState=DISABLED
+  --parameter-overrides \
+      CollectScheduleState=DISABLED \
+      ReportScheduleState=DISABLED
 ```
 
 Export any reports you want to keep, empty the generated report bucket, and
@@ -389,7 +540,7 @@ CloudFormation deployment:
 
 ![CloudFormation stack events](docs/screenshots/01-stack-complete.png)
 
-Enabled weekly schedule:
+Historic weekly schedule evidence:
 
 ![EventBridge enabled status](docs/screenshots/02a-eventbridge-enabled.png)
 

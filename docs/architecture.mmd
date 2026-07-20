@@ -1,9 +1,11 @@
 flowchart LR
-    A["EventBridge Scheduler<br/>Sunday 11:30 AM America/Los_Angeles"] --> B["One AWS Lambda"]
+    A["EventBridge Scheduler<br/>daily collection"] --> B["One AWS Lambda<br/>collect mode"]
     C["MPP services catalog"] --> B
     D["Tempo blog"] --> B
     E["GitHub commits"] --> B
     B --> F["DynamoDB<br/>locks, items, runs"]
-    B --> G["Amazon Bedrock<br/>Nova"]
-    G --> B
-    B --> H["Private S3<br/>weekly HTML report"]
+    B --> K["Private Google Sheet<br/>evidence review queue"]
+    K --> J["One AWS Lambda<br/>manual draft mode"]
+    J --> G["Amazon Bedrock<br/>Nova"]
+    G --> J
+    J --> H["Private S3<br/>draft HTML + curation snapshot"]

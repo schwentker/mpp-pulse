@@ -1,6 +1,6 @@
 {
-  "trigger": "manual",
+  "trigger": "manual_draft",
+  "mode": "draft",
   "force": true,
-  "window_days": 7,
-  "report_date": "2026-07-19"
+  "window_days": 7
 }
